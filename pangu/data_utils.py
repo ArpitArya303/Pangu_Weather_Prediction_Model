@@ -9,6 +9,7 @@ from torchvision.transforms import Normalize, Compose
 import torch
 import xarray as xr
 import numpy as np
+
 #from dateutil.relativedelta import relativedelta
 
 
@@ -36,19 +37,25 @@ def upper_air_transform(mean_path, std_path):
     with open(std_path, "rb") as f:
         upper_air_std = pickle.load(f)
 
-    pLevels = sorted(list(upper_air_mean.keys()))
-    variables = sorted(list(list(upper_air_mean.values())[0].keys()))
-    normalize = {}
-    for pl in pLevels:
-        mean_seq, std_seq = [], []
-        for v in variables:
-            mean_seq.append(upper_air_mean[pl][v])
-            std_seq.append(upper_air_std[pl][v])
+    variables = set()
+    pLevels = set()
+    
+    # Extract variables and levels from tuple keys
+    for (var, level) in upper_air_mean.keys():
+        variables.add(var)
+        pLevels.add(level)
+    
+    variables = sorted(list(variables))
+    pLevels = sorted(list(pLevels))
 
+    normalize = {}
+
+    for pl in pLevels:
+        mean_seq = [upper_air_mean[(v, pl)] for v in variables]
+        std_seq = [upper_air_std[(v, pl)] for v in variables]
         normalize[pl] = Normalize(mean_seq, std_seq)
 
     return normalize, variables, pLevels
-
 
 def surface_inv_transform(mean_path, std_path):
     with open(mean_path, "rb") as f:
@@ -173,12 +180,25 @@ def get_year_month_day(dt):
     return year, month, day
 
 class ZarrWeatherDataset(Dataset):
-    def __init__(self, zarr_path, surface_vars, upper_air_vars, static_vars=None, indices=None, transform=None):
+    def __init__(self, zarr_path, surface_vars, upper_air_vars,plevels, static_vars=None, indices=None, surface_transform=None, upper_air_transform=None):
+        """Initialize the dataset.
+        Args:
+            zarr_path (str): Path to the Zarr dataset.
+            surface_vars (list): List of surface variable names.
+            upper_air_vars (list): List of upper air variable names.
+            plevels (list): List of pressure levels for upper air variables.
+            static_vars (list, optional): List of static variable names. Defaults to None.
+            indices (list, optional): List of time indices to use. Defaults to None (all except last).
+            surface_transform (callable, optional): Transform for surface variables. Defaults to None.
+            upper_air_transform (dict, optional): Dict of transforms for upper air variables by pressure level. Defaults to None.
+        """
         self.ds = xr.open_zarr(zarr_path)
         self.surface_vars = surface_vars
         self.upper_air_vars = upper_air_vars
+        self.plevels = sorted(plevels)
         self.static_vars = static_vars if static_vars is not None else []
-        self.transform = transform
+        self.surface_transform = surface_transform if surface_transform is not None else None
+        self.upper_air_transform = upper_air_transform if upper_air_transform is not None else None
 
         # Use all time indices except the last (for t+1 target)
         self.indices = indices if indices is not None else np.arange(self.ds.dims['time'] - 1)
@@ -187,15 +207,29 @@ class ZarrWeatherDataset(Dataset):
         return len(self.indices)
 
     def __getitem__(self, idx):
+        """Get imput and target data for a given index.
+        Args:
+            idx (int): Index of the data point.
+        Returns:
+            dict: Dictionary containing input and target tensors.
+        """
         t = self.indices[idx]
 
         # Surface variables: (time, lon, lat)
         surface = np.stack([self.ds[var].isel(time=t).values for var in self.surface_vars], axis=0)
         surface_target = np.stack([self.ds[var].isel(time=t+1).values for var in self.surface_vars], axis=0)
         
-        # Upper air variables: (time, level, lon, lat)
-        upper_air = np.stack([self.ds[var].isel(time=t).values for var in self.upper_air_vars], axis=0)
-        upper_air_target = np.stack([self.ds[var].isel(time=t+1).values for var in self.upper_air_vars], axis=0)
+        # Upper air variables: (C, L, H, W)
+        upper_air = []
+        upper_air_target = []
+        for var in self.upper_air_vars:
+            # Select specific pressure levels
+            var_data = self.ds[var].sel(level=self.plevels)
+            upper_air.append(var_data.isel(time=t).values)
+            upper_air_target.append(var_data.isel(time=t+1).values)
+        
+        upper_air = np.stack(upper_air, axis=0)
+        upper_air_target = np.stack(upper_air_target, axis=0)
         
         # Static variables: (lon, lat)
         static = np.stack([self.ds[var].values for var in self.static_vars], axis=0) if self.static_vars else None
@@ -209,22 +243,22 @@ class ZarrWeatherDataset(Dataset):
             static = torch.from_numpy(static.astype(np.float32))
 
         # Apply transform if provided
-        if self.transform:
-            surface = self.transform(surface)
-            upper_air = self.transform(upper_air)
-            surface_target = self.transform(surface_target)
-            upper_air_target = self.transform(upper_air_target)
-            if static is not None:
-                static = self.transform(static)
-
-        return {
-            'surface': surface,
-            'upper_air': upper_air,
-            'static': static,
-            'surface_target': surface_target,
-            'upper_air_target': upper_air_target
-        }
-    
+        if self.surface_transform is not None:
+            surface = self.surface_transform(surface)
+            surface_target = self.surface_transform(surface_target)
+        if self.upper_air_transform is not None:
+            for i, pl in enumerate(self.plevels):
+                upper_air[:, i] = self.upper_air_transform[pl](upper_air[:, i])
+                upper_air_target[:, i] = self.upper_air_transform[pl](upper_air_target[:, i])        
+        
+        return{
+                'surface': surface,
+                'upper_air': upper_air,
+                'static': static,
+                'surface_target': surface_target,
+                'upper_air_target': upper_air_target
+            }
+        
     def __len__(self):
         return len(self.indices)
 

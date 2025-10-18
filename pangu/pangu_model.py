@@ -3,13 +3,12 @@ from torch import nn
 import numpy as np
 from timm.layers import trunc_normal_, DropPath
 
-from .utils.earth_position_index import get_earth_position_index
-from .utils.shift_window_mask import get_shift_window_mask, window_partition, window_reverse
-from .utils.patch_embed import PatchEmbed2D, PatchEmbed3D
-from .utils.patch_recovery import PatchRecovery2D, PatchRecovery3D
-from .utils.pad import get_pad3d
-from .utils.crop import crop3d
-
+from Pangu.Pangu_Weather_Prediction_Model.pangu.utils.earth_position_index import get_earth_position_index
+from Pangu.Pangu_Weather_Prediction_Model.pangu.utils.shift_window_mask import get_shift_window_mask, window_partition, window_reverse
+from Pangu.Pangu_Weather_Prediction_Model.pangu.utils.patch_embed import PatchEmbed2D, PatchEmbed3D
+from Pangu.Pangu_Weather_Prediction_Model.pangu.utils.patch_recovery import PatchRecovery2D, PatchRecovery3D
+from Pangu.Pangu_Weather_Prediction_Model.pangu.utils.pad import get_pad3d
+from Pangu.Pangu_Weather_Prediction_Model.pangu.utils.crop import crop3d
 
 class UpSample(nn.Module):
     """
@@ -420,7 +419,7 @@ class Pangu(nn.Module):
             surface_mask (torch.Tensor): 2D n_lat=721, n_lon=1440, chans=3.
             upper_air (torch.Tensor): 3D n_pl=13, n_lat=721, n_lon=1440, chans=5.
         """
-        surface = torch.concat([surface, surface_mask.unsqueeze(0)], dim=1)
+        surface = torch.concat([surface, surface_mask], dim=1)
         surface = self.patchembed2d(surface)
         upper_air = self.patchembed3d(upper_air)
 
@@ -477,61 +476,96 @@ class Pangu_lite(nn.Module):
         num_heads (tuple[int]): Number of attention heads in different layers.
         window_size (tuple[int]): Window size.
     """
-    def __init__(self, embed_dim=192, num_heads=(6, 12, 12, 6), window_size=(2, 6, 12)):
+    
+    def __init__(self, embed_dim=192, num_heads=(6, 12, 12, 6), window_size=(2, 8, 4)):
         super().__init__()
         drop_path = np.linspace(0, 0.2, 8).tolist()
-        # In addition, three constant masks(the topography mask, land-sea mask and soil type mask)
+        
+        # Input dimensions
+        H, W = 64, 32              # spatial dimensions
+        D = 3                      # pressure levels
+        pH, pW = 4, 4             # patch size
+        pD = 2                     # patch size in pressure
+        
+        # # Calculate patches
+        # Hp, Wp = H // pH, W // pW  # 16, 8 patches
+        # Dp = D // pD + 1           # 2 patches in pressure (1 from surface + 1 from upper_air)
+        
         self.patchembed2d = PatchEmbed2D(
-            img_size=(721, 1440),
-            patch_size=(8, 8),
-            in_chans=4 + 3,  # add
+            img_size=(H, W),
+            patch_size=(pH, pW),
+            in_chans=2 + 2,        # 2 surface vars + 2 static vars
             embed_dim=embed_dim,
         )
         self.patchembed3d = PatchEmbed3D(
-            img_size=(13, 721, 1440),
-            patch_size=(2, 8, 8),
-            in_chans=5,
+            img_size=(D, H, W),
+            patch_size=(pD, pH, pW),
+            in_chans=2,            # 2 upper air vars
             embed_dim=embed_dim
         )
 
+        # Update input_resolution to match the actual tensor size
         self.layer1 = BasicLayer(
             dim=embed_dim,
-            input_resolution=(8, 91, 180),
+            input_resolution=(3, 16, 8),  # Pl=3, Lat=16, Lon=8
             depth=2,
             num_heads=num_heads[0],
             window_size=window_size,
             drop_path=drop_path[:2]
         )
-        self.downsample = DownSample(in_dim=embed_dim, input_resolution=(8, 91, 180), output_resolution=(8, 46, 90))
+        
+        self.downsample = DownSample(
+            in_dim=embed_dim, 
+            input_resolution=(3, 16, 8),    # Match layer1
+            output_resolution=(3, 8, 4)     # Half spatial resolution
+        )
+        
         self.layer2 = BasicLayer(
             dim=embed_dim * 2,
-            input_resolution=(8, 46, 90),
+            input_resolution=(3, 8, 4),     # Downsampled resolution
             depth=6,
             num_heads=num_heads[1],
             window_size=window_size,
             drop_path=drop_path[2:]
         )
+        
         self.layer3 = BasicLayer(
             dim=embed_dim * 2,
-            input_resolution=(8, 46, 90),
+            input_resolution=(3, 8, 4),     # Same as layer2
             depth=6,
             num_heads=num_heads[2],
             window_size=window_size,
             drop_path=drop_path[2:]
         )
-        self.upsample = UpSample(embed_dim * 2, embed_dim, (8, 46, 90), (8, 91, 180))
+        
+        self.upsample = UpSample(
+            embed_dim * 2, 
+            embed_dim, 
+            (3, 8, 4),    # Match layer3
+            (3, 16, 8)    # Back to original resolution
+        )
+        
         self.layer4 = BasicLayer(
             dim=embed_dim,
-            input_resolution=(8, 91, 180),
+            input_resolution=(3, 16, 8),    # Back to original resolution
             depth=2,
             num_heads=num_heads[3],
             window_size=window_size,
             drop_path=drop_path[:2]
         )
-        # The outputs of the 2nd encoder layer and the 8th decoder layer are concatenated along the channel dimension.
-        self.patchrecovery2d = PatchRecovery2D((721, 1440), (8, 8), 2 * embed_dim, 4)
-        self.patchrecovery3d = PatchRecovery3D((13, 721, 1440), (2, 8, 8), 2 * embed_dim, 5)
 
+        # The outputs of the 2nd encoder layer and the 8th decoder layer are concatenated along the channel dimension.
+        self.patchrecovery2d = PatchRecovery2D(
+            (H, W),
+            (pH, pW),
+            2 * embed_dim, 
+            2)
+        self.patchrecovery3d = PatchRecovery3D(
+            (D, H, W),
+            (pD, pH, pW),
+            2 * embed_dim, 
+            2)
+        
     def forward(self, surface, surface_mask, upper_air):
         """
         Args:
@@ -539,12 +573,13 @@ class Pangu_lite(nn.Module):
             surface_mask (torch.Tensor): 2D n_lat=721, n_lon=1440, chans=3.
             upper_air (torch.Tensor): 3D n_pl=13, n_lat=721, n_lon=1440, chans=5.
         """
-        surface = torch.concat([surface, surface_mask.unsqueeze(0)], dim=1)
+        surface = torch.concat([surface, surface_mask], dim=1)
         surface = self.patchembed2d(surface)
         upper_air = self.patchembed3d(upper_air)
 
         x = torch.concat([surface.unsqueeze(2), upper_air], dim=2)
         B, C, Pl, Lat, Lon = x.shape
+        
         x = x.reshape(B, C, -1).transpose(1, 2)
 
         x = self.layer1(x)

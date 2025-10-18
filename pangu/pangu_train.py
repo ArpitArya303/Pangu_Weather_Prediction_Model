@@ -1,29 +1,47 @@
 import argparse
 import os
 import numpy as np
-import pandas as pd
 import xarray as xr
 import torch
 from tqdm import tqdm
 from torch.utils.data import DataLoader
 from torch import nn
 from torch.utils.tensorboard import SummaryWriter
-from pangu_model import Pangu
-from data_utils import ZarrWeatherDataset, surface_inv_transform, upper_air_inv_transform
+
+from Pangu.Pangu_Weather_Prediction_Model.pangu.pangu_model import Pangu_lite
+from Pangu.Pangu_Weather_Prediction_Model.pangu.data_utils import (
+    ZarrWeatherDataset, 
+    surface_transform, 
+    upper_air_transform, 
+)
+
 
 def train_step(model, dataloader, surface_criterion, upper_air_criterion, optimizer, device):
     model.train()
     running_loss = 0.0
 
-    for X_surf, X_upper, X_static, y_surf, y_upper in dataloader:
-        X_surf, X_upper, X_static = X_surf.to(device), X_upper.to(device), X_static.to(device)
-        y_surf, y_upper = y_surf.to(device), y_upper.to(device)
-        batch_size = X_surf.size(0)
-        optimizer.zero_grad()
-        pred_surf, pred_upper = model(X_surf, X_static, X_upper)
+    for batch in dataloader:
+        # Unpack dictionary from dataset
+        input_surface = batch['surface']
+        input_upper_air = batch['upper_air']
+        static = batch['static']
+        target_surface = batch['surface_target']
+        target_upper_air = batch['upper_air_target']
 
-        loss_surf = surface_criterion(pred_surf, y_surf)
-        loss_upper = upper_air_criterion(pred_upper, y_upper)
+        # Move to device
+        input_surface = input_surface.to(device)
+        input_upper_air = input_upper_air.to(device)
+        static = static.to(device)
+        target_surface = target_surface.to(device)
+        target_upper_air = target_upper_air.to(device)
+
+        batch_size = input_surface.size(0)
+        
+        optimizer.zero_grad()
+        pred_surf, pred_upper = model(input_surface, static, input_upper_air)
+
+        loss_surf = surface_criterion(pred_surf, target_surface)
+        loss_upper = upper_air_criterion(pred_upper, target_upper_air)
         loss = loss_surf*0.25 + loss_upper
 
         loss.backward()
@@ -32,40 +50,55 @@ def train_step(model, dataloader, surface_criterion, upper_air_criterion, optimi
         running_loss += loss.item() * batch_size
 
     epoch_loss = running_loss / len(dataloader.dataset)
+    
     return epoch_loss
 
-def val_step(model, dataloader, surface_criterion, upper_air_criterion, device):
+def val_step(model, dataloader, surface_criterion, upper_air_criterion, device, surface_inv_trans=None, upper_air_inv_trans=None):
     model.eval()
     val_loss = 0.0
     surface_mse = 0.0
     upper_air_mse = 0.0
 
     with torch.no_grad():
-        for X_surf, X_upper, X_static, y_surf, y_upper in dataloader:
-            X_surf, X_upper, X_static = X_surf.to(device), X_upper.to(device), X_static.to(device)
-            y_surf, y_upper = y_surf.to(device), y_upper.to(device)
-            batch_size = X_surf.size(0)
+        for batch in dataloader:
+            # Unpack dictionary from dataset
+            input_surface = batch['surface']
+            input_upper_air = batch['upper_air']
+            static = batch['static']
+            target_surface = batch['surface_target']
+            target_upper_air = batch['upper_air_target']
 
-            pred_surf, pred_upper = model(X_surf, X_static, X_upper)
+            # Move to device
+            input_surface = input_surface.to(device)
+            input_upper_air = input_upper_air.to(device)
+            static = static.to(device)
+            target_surface = target_surface.to(device)
+            target_upper_air = target_upper_air.to(device)
 
-            loss_surf = surface_criterion(pred_surf, y_surf)
-            loss_upper = upper_air_criterion(pred_upper, y_upper)
+            batch_size = input_surface.size(0)
+
+            pred_surf, pred_upper = model(input_surface, static, input_upper_air)
+
+            loss_surf = surface_criterion(pred_surf, target_surface)
+            loss_upper = upper_air_criterion(pred_upper, target_upper_air)
             loss = loss_surf*0.25 + loss_upper
-
+            
             val_loss += loss.item() * batch_size
-            surface_mse += ((pred_surf - y_surf) ** 2).mean().item() * batch_size
-            upper_air_mse += ((pred_upper - y_upper) ** 2).mean().item() * batch_size
+            surface_mse += ((pred_surf - target_surface) ** 2).mean().item() * batch_size
+            upper_air_mse += ((pred_upper - target_upper_air) ** 2).mean().item() * batch_size
 
     epoch_val_loss = val_loss / len(dataloader.dataset)
     epoch_surface_mse = surface_mse / len(dataloader.dataset)
     epoch_upper_air_mse = upper_air_mse / len(dataloader.dataset)
+    
     return epoch_val_loss, epoch_surface_mse, epoch_upper_air_mse
 
 def train(model, train_loader, val_loader, surface_criterion, upper_air_criterion, optimizer, device, num_epochs, log_dir):
     writer = SummaryWriter(log_dir=log_dir)
     
     for epoch in range(1, num_epochs + 1):
-        train_loss = train_step(model, train_loader, surface_criterion, upper_air_criterion, optimizer, device)
+        train_bar = tqdm(train_loader, desc=f"Epoch {epoch}/{num_epochs} - Training")
+        train_loss = train_step(model, train_bar, surface_criterion, upper_air_criterion, optimizer, device)
         val_loss, surface_mse, upper_air_mse = val_step(model, val_loader, surface_criterion, upper_air_criterion, device)
 
         # Log metrics to TensorBoard
@@ -103,22 +136,56 @@ if __name__ == "__main__":
     parser.add_argument("--upper_air_variables", nargs='+', default=["geopotential","specific_humidity","temperature", "u_component_of_wind", "v_component_of_wind"], help="Upper air variables")
     parser.add_argument("--pLevels", nargs='+', default=[50,100,150,200,250,300,400,500,600,700,850,925,1000], type=int, help="Pressure levels for upper air variables")
     parser.add_argument("--static_variables", nargs='+', default=["land_sea_mask", "soil_type"], help="Static variables")
-    parser.add_argument("--batch_size", type=int, default=4, help="Batch size for training")
+    parser.add_argument("--batch_size", type=int, default=32, help="Batch size for training")
     parser.add_argument("--num_epochs", type=int, default=50, help="Number of epochs to train")
     parser.add_argument("--log_dir", default="runs/trial", help="Directory to save logs")
+    parser.add_argument("--transform_dir", type=str, default="/storage/arpit/Pangu/Pangu_Weather_Prediction_Model/pangu/data", help="Directory containing mean and std pickle files for transforms")
     opt = parser.parse_args()
     
-    print("Preparing data...")
+    print("Preparing indices...")
     dataset = xr.open_zarr(opt.data)
-    time_len = dataset.dims['time'] - 1
+    time_len = dataset.sizes['time'] - 1
     indices = np.arange(time_len)
     train_indices = indices[:int(0.8 * time_len)]
     val_indices = indices[int(0.8 * time_len):]
 
     print("Creating datasets and dataloaders...")
-    train_dataset = ZarrWeatherDataset(opt.data, opt.surface_variables, opt.upper_air_variables, opt.pLevels, opt.static_variables, indices=train_indices)
-    val_dataset = ZarrWeatherDataset(opt.data, opt.surface_variables, opt.upper_air_variables, opt.pLevels, opt.static_variables, indices=val_indices)
+    # Create the transforms
+    surface_normalizer, _ = surface_transform(
+        os.path.join(opt.transform_dir, "surface_mean.pkl"),
+        os.path.join(opt.transform_dir, "surface_std.pkl")
+    )
 
+    upper_air_normalizer, _, _ = upper_air_transform(
+        os.path.join(opt.transform_dir, "upper_air_mean.pkl"),
+        os.path.join(opt.transform_dir, "upper_air_std.pkl")
+    )
+
+    # Train dataset creation
+    train_dataset = ZarrWeatherDataset(
+        zarr_path=opt.data, 
+        surface_vars=opt.surface_variables,
+        upper_air_vars=opt.upper_air_variables,
+        plevels=opt.pLevels,
+        static_vars=opt.static_variables,
+        indices=train_indices,
+        surface_transform=surface_normalizer,  
+        upper_air_transform=upper_air_normalizer  
+    )
+
+    # Create validation dataset
+    val_dataset = ZarrWeatherDataset(
+        zarr_path=opt.data,
+        surface_vars=opt.surface_variables,
+        upper_air_vars=opt.upper_air_variables,
+        plevels=opt.pLevels,
+        static_vars=opt.static_variables,
+        indices=val_indices,
+        surface_transform=surface_normalizer,
+        upper_air_transform=upper_air_normalizer
+    )
+
+    # Create dataloaders
     train_loader = DataLoader(train_dataset, batch_size=opt.batch_size, shuffle=True, num_workers=4)
     val_loader = DataLoader(val_dataset, batch_size=opt.batch_size, shuffle=False, num_workers=4)
 
@@ -126,12 +193,7 @@ if __name__ == "__main__":
     device = torch.device("cuda") # if torch.cuda.is_available() else "cpu")
 
     print("Initializing model, criteria, and optimizer...")
-    pangu = Pangu(
-        surface_vars=len(opt.surface_variables),
-        upper_air_vars=len(opt.upper_air_variables),
-        upper_air_plevels=len(opt.upper_air_pLevels),
-        static_vars=len(opt.static_variables)
-    ).to(device)
+    pangu = Pangu_lite().to(device)
 
     surface_criterion = nn.L1Loss()
     upper_air_criterion = nn.L1Loss()
