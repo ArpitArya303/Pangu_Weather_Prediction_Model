@@ -98,7 +98,7 @@ def train(model, train_loader, val_loader, surface_criterion, upper_air_criterio
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data", type=str, required=True, help="/home/bedartha/public/datasets/as_downloaded/weatherbench2/era5/1959-2023_01_10-6h-64x32_equiangular_conservative.zarr")
+    parser.add_argument("--data", type=str, default="/home/bedartha/public/datasets/as_downloaded/weatherbench2/era5/1959-2023_01_10-6h-64x32_equiangular_conservative.zarr", help="Path to the Zarr dataset")
     parser.add_argument("--surface_variables", nargs='+', default=["2m_temperature","mean_sea_level_pressure","10m_u_component_of_wind","10m_v_component_of_wind"], help="Surface variables")
     parser.add_argument("--upper_air_variables", nargs='+', default=["geopotential","specific_humidity","temperature", "u_component_of_wind", "v_component_of_wind"], help="Upper air variables")
     parser.add_argument("--pLevels", nargs='+', default=[50,100,150,200,250,300,400,500,600,700,850,925,1000], type=int, help="Pressure levels for upper air variables")
@@ -137,7 +137,7 @@ if __name__ == "__main__":
     upper_air_criterion = nn.L1Loss()
     optimizer = torch.optim.Adam(pangu.parameters(), lr=5e-4, weight_decay=3e-6)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=opt.num_epochs)
-
+    
     print("Starting training...")
     results = train(pangu, train_loader, val_loader, surface_criterion, upper_air_criterion, optimizer, device, opt.num_epochs, opt.log_dir)
     print("Training complete.")
