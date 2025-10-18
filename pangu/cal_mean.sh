@@ -6,8 +6,8 @@
 #SBATCH --partition=gpu_prio  
 #SBATCH --gres=gpu:1
 #SBATCH --time=07:23:59      
-#SBATCH --output=/storage/arpit/Pangu/Output/output_train.log  # Save logs here
-#SBATCH --error=/storage/arpit/Pangu/Output/error_train.log
+#SBATCH --output=/storage/arpit/Pangu/Output/output_mean.log  # Save logs here
+#SBATCH --error=/storage/arpit/Pangu/Output/error_mean.log
 
 # Print job information
 echo "Job ID: $SLURM_JOB_ID"
@@ -28,13 +28,9 @@ nvidia-smi
 
 echo "Job started at: $(date)"
 
-python -u pangu_train.py --data /home/bedartha/public/datasets/as_downloaded/weatherbench2/era5/1959-2023_01_10-6h-64x32_equiangular_conservative.zarr \
+python -u cal_mean_std.py --zarr_path /home/bedartha/public/datasets/as_downloaded/weatherbench2/era5/1959-2023_01_10-6h-64x32_equiangular_conservative.zarr \
     --surface_variables 2m_temperature mean_sea_level_pressure \
     --upper_air_variables geopotential temperature \
-    --pLevels 100, 200, 300 \
-    --static_variables soil_type land_sea_mask \
-    --batch_size 4 \
-    --num_epochs 50 \
-    --log_dir /storage/arpit/Pangu/Logs/trial_run
-
+    --plevels 100 200 300 \
+    --output_dir /storage/arpit/Pangu/Pangu_Weather_Prediction_Model/pangu/data 
 echo "Job ended at: $(date)"
