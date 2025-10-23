@@ -180,8 +180,9 @@ def get_year_month_day(dt):
     return year, month, day
 
 class ZarrWeatherDataset(Dataset):
-    def __init__(self, zarr_path, surface_vars, upper_air_vars,plevels, static_vars=None, indices=None, surface_transform=None, upper_air_transform=None):
-        """Initialize the dataset.
+    def __init__(self, zarr_path, surface_vars, upper_air_vars, plevels, static_vars=None, 
+                 indices=None, surface_transform=None, upper_air_transform=None, chunk_size=1):
+        """Initialize the dataset with optimized data loading.
         Args:
             zarr_path (str): Path to the Zarr dataset.
             surface_vars (list): List of surface variable names.
@@ -191,73 +192,112 @@ class ZarrWeatherDataset(Dataset):
             indices (list, optional): List of time indices to use. Defaults to None (all except last).
             surface_transform (callable, optional): Transform for surface variables. Defaults to None.
             upper_air_transform (dict, optional): Dict of transforms for upper air variables by pressure level. Defaults to None.
+            chunk_size (int, optional): Number of samples to load at once. Defaults to 1.
         """
-        self.ds = xr.open_zarr(zarr_path)
+        self.ds = xr.open_zarr(zarr_path, chunks={'time': chunk_size})
         self.surface_vars = surface_vars
         self.upper_air_vars = upper_air_vars
         self.plevels = sorted(plevels)
         self.static_vars = static_vars if static_vars is not None else []
-        self.surface_transform = surface_transform if surface_transform is not None else None
-        self.upper_air_transform = upper_air_transform if upper_air_transform is not None else None
+        self.surface_transform = surface_transform
+        self.upper_air_transform = upper_air_transform
+        self.chunk_size = chunk_size
+
+        # Cache dataset dimensions
+        self.dims = dict(self.ds.dims)
+        
+        # Pre-compute pressure level indices
+        if 'level' in self.ds.dims:
+            self.plevel_indices = [self.ds.level.values.tolist().index(pl) for pl in self.plevels]
+        
+        # Cache static variables
+        if self.static_vars:
+            self.static_data = torch.from_numpy(
+                np.stack([self.ds[var].values for var in self.static_vars], axis=0)
+            ).float()
+        else:
+            self.static_data = None
 
         # Use all time indices except the last (for t+1 target)
-        self.indices = indices if indices is not None else np.arange(self.ds.dims['time'] - 1)
+        self.indices = indices if indices is not None else np.arange(self.dims['time'] - 1)
 
-    def __len__(self):
-        return len(self.indices)
+        # Initialize data cache
+        self._cache = {}
+        self._cache_idx = None
 
-    def __getitem__(self, idx):
-        """Get imput and target data for a given index.
-        Args:
-            idx (int): Index of the data point.
-        Returns:
-            dict: Dictionary containing input and target tensors.
-        """
-        t = self.indices[idx]
-
+    def _load_chunk(self, t):
+        """Load a chunk of data into cache."""
         # Surface variables: (time, lon, lat)
-        surface = np.stack([self.ds[var].isel(time=t).values for var in self.surface_vars], axis=0)
-        surface_target = np.stack([self.ds[var].isel(time=t+1).values for var in self.surface_vars], axis=0)
+        surface_data = self.ds[self.surface_vars].isel(time=slice(t, t + 2)).to_array().values
+        surface = surface_data[:, 0, ...]  # Current timestep (var, lat, lon)
+        surface_target = surface_data[:, 1, ...]  # Next timestep (var, lat, lon)
         
-        # Upper air variables: (C, L, H, W)
-        upper_air = []
-        upper_air_target = []
+        # Initialize lists to store upper air variables for each pressure level
+        upper_air_vars = []
+        upper_air_target_vars = []
+        
+        # Load data for each variable and pressure level
         for var in self.upper_air_vars:
-            # Select specific pressure levels
-            var_data = self.ds[var].sel(level=self.plevels)
-            upper_air.append(var_data.isel(time=t).values)
-            upper_air_target.append(var_data.isel(time=t+1).values)
+            var_data = []
+            var_target_data = []
+            for pl in self.plevels:
+                # Select data for current variable and pressure level
+                level_data = self.ds[var].sel(level=pl).isel(time=slice(t, t + 2)).values
+                var_data.append(level_data[0])  # Current timestep
+                var_target_data.append(level_data[1])  # Next timestep
+            upper_air_vars.append(np.stack(var_data))  # (level, lat, lon)
+            upper_air_target_vars.append(np.stack(var_target_data))  # (level, lat, lon)
         
-        upper_air = np.stack(upper_air, axis=0)
-        upper_air_target = np.stack(upper_air_target, axis=0)
-        
-        # Static variables: (lon, lat)
-        static = np.stack([self.ds[var].values for var in self.static_vars], axis=0) if self.static_vars else None
+        # Stack all variables
+        upper_air = np.stack(upper_air_vars)  # (var, level, lat, lon)
+        upper_air_target = np.stack(upper_air_target_vars)  # (var, level, lat, lon)
 
         # Convert to torch tensors
         surface = torch.from_numpy(surface.astype(np.float32))
         surface_target = torch.from_numpy(surface_target.astype(np.float32))
         upper_air = torch.from_numpy(upper_air.astype(np.float32))
         upper_air_target = torch.from_numpy(upper_air_target.astype(np.float32))
-        if static is not None:
-            static = torch.from_numpy(static.astype(np.float32))
 
-        # Apply transform if provided
+        # Apply transforms
         if self.surface_transform is not None:
             surface = self.surface_transform(surface)
             surface_target = self.surface_transform(surface_target)
+            
         if self.upper_air_transform is not None:
-            for i, pl in enumerate(self.plevels):
-                upper_air[:, i] = self.upper_air_transform[pl](upper_air[:, i])
-                upper_air_target[:, i] = self.upper_air_transform[pl](upper_air_target[:, i])        
-        
-        return{
-                'surface': surface,
-                'upper_air': upper_air,
-                'static': static,
-                'surface_target': surface_target,
-                'upper_air_target': upper_air_target
-            }
+            # Apply transforms for each pressure level
+            for level_idx, pl in enumerate(self.plevels):
+                # Transform shape: (var, lat, lon)
+                level_data = upper_air[:, level_idx]
+                level_target = upper_air_target[:, level_idx]
+                
+                # Apply transform
+                upper_air[:, level_idx] = self.upper_air_transform[pl](level_data)
+                upper_air_target[:, level_idx] = self.upper_air_transform[pl](level_target)
+
+        return {
+            'surface': surface,
+            'upper_air': upper_air,
+            'static': self.static_data,
+            'surface_target': surface_target,
+            'upper_air_target': upper_air_target
+        }
+
+    def __getitem__(self, idx):
+        """Get input and target data with caching.
+        Args:
+            idx (int): Index of the data point.
+        Returns:
+            dict: Dictionary containing input and target tensors.
+        """
+        t = self.indices[idx]
+        chunk_idx = t // self.chunk_size
+
+        # Check if we need to load a new chunk
+        if self._cache_idx != chunk_idx:
+            self._cache = self._load_chunk(t)
+            self._cache_idx = chunk_idx
+
+        return self._cache
         
     def __len__(self):
         return len(self.indices)

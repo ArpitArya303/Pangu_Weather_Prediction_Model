@@ -492,14 +492,14 @@ class Pangu_lite(nn.Module):
         # Dp = D // pD + 1           # 2 patches in pressure (1 from surface + 1 from upper_air)
         
         self.patchembed2d = PatchEmbed2D(
-            img_size=(H, W),
-            patch_size=(pH, pW),
+            img_size=(64, 32),
+            patch_size=(4, 4),
             in_chans=2 + 2,        # 2 surface vars + 2 static vars
             embed_dim=embed_dim,
         )
         self.patchembed3d = PatchEmbed3D(
-            img_size=(D, H, W),
-            patch_size=(pD, pH, pW),
+            img_size=(3, 64, 32),
+            patch_size=(2, 4, 4),
             in_chans=2,            # 2 upper air vars
             embed_dim=embed_dim
         )
@@ -556,13 +556,13 @@ class Pangu_lite(nn.Module):
 
         # The outputs of the 2nd encoder layer and the 8th decoder layer are concatenated along the channel dimension.
         self.patchrecovery2d = PatchRecovery2D(
-            (H, W),
-            (pH, pW),
+            (64, 32),
+            (4, 4),
             2 * embed_dim, 
             2)
         self.patchrecovery3d = PatchRecovery3D(
-            (D, H, W),
-            (pD, pH, pW),
+            (3, 64, 32),
+            (2, 4, 4),
             2 * embed_dim, 
             2)
         
