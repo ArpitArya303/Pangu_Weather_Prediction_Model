@@ -145,7 +145,6 @@ def train(model, train_loader, val_loader, surface_criterion, upper_air_criterio
         max_lr=5e-4,
         epochs=num_epochs,
         steps_per_epoch=len(train_loader) // accumulation_steps,
-        pct_start=0.3,
         anneal_strategy='cos'
     )
     
@@ -225,14 +224,7 @@ if __name__ == "__main__":
     parser.add_argument("--num_workers", type=int, default=6, help="Number of data loading workers per GPU")
     opt = parser.parse_args()
 
-    print("Preparing indices...")
-    dataset = xr.open_zarr(opt.data)
-    time_len = dataset.sizes['time'] - 1
-    indices = np.arange(time_len)
-    
-    # Stratified split to ensure temporal consistency
-    train_indices = indices[:int(0.8 * time_len)]
-    val_indices = indices[int(0.8 * time_len):]
+    print("Preparing dataset...")
 
     print("Creating datasets and dataloaders...")
     # Create the transforms
@@ -254,7 +246,7 @@ if __name__ == "__main__":
         upper_air_vars=opt.upper_air_variables,
         plevels=opt.pLevels,
         static_vars=opt.static_variables,
-        indices=train_indices,
+        year_range=(1959, 2017),
         surface_transform=surface_normalizer,  
         upper_air_transform=upper_air_normalizer,
         chunk_size=chunk_size
@@ -266,7 +258,7 @@ if __name__ == "__main__":
         upper_air_vars=opt.upper_air_variables,
         plevels=opt.pLevels,
         static_vars=opt.static_variables,
-        indices=val_indices,
+        year_range=(2018,2020),
         surface_transform=surface_normalizer,
         upper_air_transform=upper_air_normalizer,
         chunk_size=chunk_size

@@ -1,17 +1,13 @@
 from os import listdir
 from os.path import join
 import pickle
-#from datetime import datetime
-# from typing import Literal
-
-from torch.utils.data import Dataset
-from torchvision.transforms import Normalize, Compose
-import torch
+import pandas as pd
 import xarray as xr
 import numpy as np
 
-#from dateutil.relativedelta import relativedelta
-
+import torch
+from torch.utils.data import Dataset
+from torchvision.transforms import Normalize, Compose
 
 def surface_transform(mean_path, std_path):
     with open(mean_path, "rb") as f:
@@ -181,7 +177,7 @@ def get_year_month_day(dt):
 
 class ZarrWeatherDataset(Dataset):
     def __init__(self, zarr_path, surface_vars, upper_air_vars, plevels, static_vars=None, 
-                 indices=None, surface_transform=None, upper_air_transform=None, chunk_size=1):
+                 year_range=None, split_type='train', surface_transform=None, upper_air_transform=None, chunk_size=1):
         """Initialize the dataset with optimized data loading.
         Args:
             zarr_path (str): Path to the Zarr dataset.
@@ -189,7 +185,8 @@ class ZarrWeatherDataset(Dataset):
             upper_air_vars (list): List of upper air variable names.
             plevels (list): List of pressure levels for upper air variables.
             static_vars (list, optional): List of static variable names. Defaults to None.
-            indices (list, optional): List of time indices to use. Defaults to None (all except last).
+            year_range (tuple, optional): Tuple of (start_year, end_year) to use. Defaults to None (all years).
+            split_type (str, optional): One of 'train', 'val', or 'test'. Determines year range if year_range not provided.
             surface_transform (callable, optional): Transform for surface variables. Defaults to None.
             upper_air_transform (dict, optional): Dict of transforms for upper air variables by pressure level. Defaults to None.
             chunk_size (int, optional): Number of samples to load at once. Defaults to 1.
@@ -218,8 +215,24 @@ class ZarrWeatherDataset(Dataset):
         else:
             self.static_data = None
 
-        # Use all time indices except the last (for t+1 target)
-        self.indices = indices if indices is not None else np.arange(self.dims['time'] - 1)
+        # Set up time indices based on years
+        times = self.ds.time.values
+        years = pd.DatetimeIndex(times).year
+
+        if year_range is None:
+            # Default splits based on split_type
+            if split_type == 'train':
+                year_range = (1959, 2017)
+            elif split_type == 'val':
+                year_range = (2018, 2020)
+            elif split_type == 'test':
+                year_range = (2021, 2023)
+            else:
+                raise ValueError(f"Invalid split_type: {split_type}")
+
+        # Create mask for the specified years
+        year_mask = (years >= year_range[0]) & (years <= year_range[1])
+        self.indices = np.where(year_mask)[0][:-1]  # Exclude last timestep for each year
 
         # Initialize data cache
         self._cache = {}

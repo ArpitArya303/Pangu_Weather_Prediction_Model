@@ -6,8 +6,8 @@
 #SBATCH --partition=gpu_prio  
 #SBATCH --gres=gpu:1
 #SBATCH --time=7-23:59:59      
-#SBATCH --output=/storage/arpit/Pangu/Output/output_train2.log  # Save logs here
-#SBATCH --error=/storage/arpit/Pangu/Output/error_train2.log
+#SBATCH --output=/storage/arpit/Pangu/Output/output_train3.log  # Save logs here
+#SBATCH --error=/storage/arpit/Pangu/Output/error_train3.log
 
 # Print job information
 echo "Job ID: $SLURM_JOB_ID"
@@ -37,9 +37,9 @@ python -u pangu_train.py \
     --pLevels 100 200 300 \
     --static_variables soil_type land_sea_mask \
     --batch_size 64 \
-    --num_epochs 50 \
-    --log_dir /storage/arpit/Pangu/Logs/optimized_run \
+    --num_epochs 500 \
+    --log_dir /storage/arpit/Pangu/Logs/run_500epoch \
     --transform_dir /storage/arpit/Pangu/Pangu_Weather_Prediction_Model/pangu/data \
-    --accumulation_steps 2
+    --accumulation_steps 1
 
 echo "Job ended at: $(date)"
