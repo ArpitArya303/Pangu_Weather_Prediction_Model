@@ -5,7 +5,7 @@
 #SBATCH --cpus-per-task=32            
 #SBATCH --partition=gpu_prio  
 #SBATCH --gres=gpu:1
-#SBATCH --time=07:23:59      
+#SBATCH --time=07-23:23:59      
 #SBATCH --output=/storage/arpit/Pangu/Output/output_testing.log  # Save logs here
 #SBATCH --error=/storage/arpit/Pangu/Output/error_testing.log
 
@@ -25,6 +25,8 @@ module load cudnn-8.2
 
 echo "CUDA devices:"
 nvidia-smi
+
+export PYTHONPATH="/storage/arpit:${PYTHONPATH}"
 
 echo "Job started at: $(date)"
 
