@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=Pangu       
+#SBATCH --job-name=Pangu_3 
 #SBATCH --nodes=1                    
 #SBATCH --ntasks=1                   		
 #SBATCH --cpus-per-task=64            
@@ -36,10 +36,11 @@ python -u pangu_train.py \
     --upper_air_variables geopotential temperature \
     --pLevels 100 200 300 \
     --static_variables soil_type land_sea_mask \
-    --batch_size 64 \
-    --num_epochs 500 \
-    --log_dir /storage/arpit/Pangu/Logs/run_500epoch \
+    --batch_size 128 \
+    --num_epochs 400 \
+    --log_dir /storage/arpit/Pangu/Logs/exp/run_400epoch_15stop \
     --transform_dir /storage/arpit/Pangu/Pangu_Weather_Prediction_Model/pangu/data \
-    --accumulation_steps 1
+    --accumulation_steps 1 \
+    --patience 15
 
 echo "Job ended at: $(date)"

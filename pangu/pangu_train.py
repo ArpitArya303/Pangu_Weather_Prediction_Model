@@ -18,11 +18,20 @@ from Pangu.Pangu_Weather_Prediction_Model.pangu.data_utils import (
 
 
 def train_step(model, dataloader, surface_criterion, upper_air_criterion, optimizer, device, 
-               scaler, train_dataset, accumulation_steps=1):
+               scaler, train_dataset, accumulation_steps):
+    """Run one epoch of training and collect per-parameter gradient statistics.
+
+    Returns:
+        epoch_loss (float), grad_stats (dict[str, float])
+    """
     model.train()
     running_loss = 0.0
     optimizer.zero_grad()
-    
+
+    # Accumulate mean-absolute gradients per parameter across optimizer steps
+    grad_acc = {name: 0.0 for name, _ in model.named_parameters()}
+    grad_count = {name: 0 for name, _ in model.named_parameters()}
+
     for i, batch in enumerate(dataloader):
         # Unpack and move to device in a memory-efficient way
         input_surface = batch['surface'].to(device, non_blocking=True)
@@ -49,7 +58,18 @@ def train_step(model, dataloader, surface_criterion, upper_air_criterion, optimi
             # Unscale gradients and clip
             scaler.unscale_(optimizer)
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-            
+
+            # Before zeroing, record mean-absolute gradient for each parameter
+            for name, param in model.named_parameters():
+                if param.grad is not None:
+                    try:
+                        mag = param.grad.abs().mean().item()
+                    except Exception:
+                        # Fallback: convert to CPU then compute
+                        mag = param.grad.detach().cpu().abs().mean().item()
+                    grad_acc[name] += mag
+                    grad_count[name] += 1
+
             # Optimizer step with scaling
             scaler.step(optimizer)
             scaler.update()
@@ -64,7 +84,13 @@ def train_step(model, dataloader, surface_criterion, upper_air_criterion, optimi
     # Calculate average loss for the epoch
     total_samples = len(train_dataset)  # Get total number of samples directly from dataset
     epoch_loss = running_loss / total_samples
-    return epoch_loss
+
+    # Compute average gradient magnitude per parameter (skip params never updated)
+    grad_stats = {}
+    for name in grad_acc:
+        if grad_count[name] > 0:
+            grad_stats[name] = grad_acc[name] / float(grad_count[name])
+    return epoch_loss, grad_stats
 
 @torch.no_grad()
 def val_step(model, dataloader, surface_criterion, upper_air_criterion, device, val_dataset):
@@ -132,11 +158,14 @@ class EarlyStopping:
             self.counter = 0
         return self.early_stop
 
-def train(model, train_loader, val_loader, surface_criterion, upper_air_criterion, 
-          optimizer, device, num_epochs, log_dir, accumulation_steps=2):
-    writer = SummaryWriter(log_dir=log_dir)
+def train(model, train_loader, val_loader, train_data, val_data, surface_criterion, upper_air_criterion, 
+          optimizer, device, num_epochs, log_dir, accumulation_steps, stop_patience):
+    train_log_dir = os.path.join(log_dir, 'train_logs')
+    val_log_dir = os.path.join(log_dir, 'val_logs')
+    writer_train = SummaryWriter(log_dir=train_log_dir)
+    writer_val = SummaryWriter(log_dir=val_log_dir)
     scaler = GradScaler()
-    early_stopping = EarlyStopping(patience=10, min_delta=1e-4)
+    early_stopping = EarlyStopping(patience=stop_patience, min_delta=1e-4)
     best_val_loss = float('inf')
     
     # Learning rate scheduler
@@ -151,33 +180,38 @@ def train(model, train_loader, val_loader, surface_criterion, upper_air_criterio
     for epoch in range(1, num_epochs + 1):
         # Training phase
         train_bar = tqdm(train_loader, desc=f"Epoch {epoch}/{num_epochs} - Training")
-        train_loss = train_step(
+        train_loss, grad_stats = train_step(
             model, train_bar, surface_criterion, upper_air_criterion,
-            optimizer, device, scaler, train_dataset, accumulation_steps
+            optimizer, device, scaler, train_data, accumulation_steps
         )
         
         # Validation phase
         val_loss, surface_mse, upper_air_mse = val_step(
-            model, val_loader, surface_criterion, upper_air_criterion, device, val_dataset
+            model, val_loader, surface_criterion, upper_air_criterion, device, val_data
         )
 
         # Update learning rate
         scheduler.step()
         current_lr = optimizer.param_groups[0]['lr']
-        
-        # Log metrics
-        writer.add_scalar('Loss/train', train_loss, epoch)
-        writer.add_scalar('Loss/val', val_loss, epoch)
-        writer.add_scalar('MSE/surface', surface_mse, epoch)
-        writer.add_scalar('MSE/upper_air', upper_air_mse, epoch)
-        writer.add_scalar('Learning_Rate', current_lr, epoch)
 
-        # Log model gradients and weights less frequently to save memory
+        # Log metrics
+        writer_train.add_scalar('Loss', train_loss, epoch)
+        writer_val.add_scalar('Loss', val_loss, epoch)
+        writer_val.add_scalar('MSE/surface', surface_mse, epoch)
+        writer_val.add_scalar('MSE/upper_air', upper_air_mse, epoch)
+        writer_train.add_scalar('Learning_Rate', current_lr, epoch)
+
+        # Log gradient scalars (mean-abs) for each parameter collected during epoch
+        # To avoid excessive logging, log only parameters that exist in grad_stats.
+        # You can change this to log top-K by magnitude if desired.
+        for name, mag in grad_stats.items():
+            # scalar name: Gradients/param_name
+            writer_train.add_scalar(f'Gradients/{name}', mag, epoch)
+
+        # Log model weights histograms less frequently to save memory
         if epoch % 5 == 0:
             for name, param in model.named_parameters():
-                if param.grad is not None:
-                    writer.add_histogram(f'grad/{name}', param.grad, epoch)
-                writer.add_histogram(f'weight/{name}', param, epoch)
+                writer_train.add_histogram(f'Weight/{name}', param.detach().cpu().numpy(), epoch)
 
         # Model checkpointing
         if val_loss < best_val_loss:
@@ -197,16 +231,17 @@ def train(model, train_loader, val_loader, surface_criterion, upper_air_criterio
         print(f"Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}")
         print(f"Surface MSE: {surface_mse:.4f}, Upper Air MSE: {upper_air_mse:.4f}")
         print(f"Learning Rate: {current_lr:.6f}")
-        
+
         # Early stopping check
         if early_stopping(val_loss):
             print("Early stopping triggered")
             break
-            
+
         # Clear memory
         torch.cuda.empty_cache()
-    
-    writer.close()
+
+    writer_train.close()
+    writer_val.close()
     return model
 
 if __name__ == "__main__":
@@ -222,6 +257,7 @@ if __name__ == "__main__":
     parser.add_argument("--transform_dir", type=str, default="/storage/arpit/Pangu/Pangu_Weather_Prediction_Model/pangu/data", help="Directory containing transforms")
     parser.add_argument("--accumulation_steps", type=int, default=2, help="Number of gradient accumulation steps")
     parser.add_argument("--num_workers", type=int, default=6, help="Number of data loading workers per GPU")
+    parser.add_argument("--patience", type=int, default=10, help="Early stopping patience")
     opt = parser.parse_args()
 
     print("Preparing dataset...")
@@ -306,14 +342,17 @@ if __name__ == "__main__":
     results = train(
         pangu, 
         train_loader, 
-        val_loader, 
+        val_loader,
+        train_dataset,
+        val_dataset, 
         surface_criterion, 
         upper_air_criterion, 
         optimizer, 
         device, 
         opt.num_epochs, 
         opt.log_dir,
-        opt.accumulation_steps
+        opt.accumulation_steps,
+        opt.patience
     )
     print("Training complete.")
 
