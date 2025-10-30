@@ -1,0 +1,122 @@
+# Pangu Weather Prediction Model Configuration
+
+# Dataset Configuration
+dataset:
+  path: "/home/bedartha/public/datasets/as_downloaded/weatherbench2/era5/1959-2023_01_10-6h-64x32_equiangular_conservative.zarr"
+  transform_dir: "/storage/arpit/Pangu/Pangu_Weather_Prediction_Model/pangu/data"
+  
+  # Variable configurations
+  surface_variables:
+    - "2m_temperature"
+    - "mean_sea_level_pressure"
+    # - "10m_u_component_of_wind"
+    # - "10m_v_component_of_wind"
+  
+  upper_air_variables:
+    - "geopotential"
+    # - "specific_humidity"
+    - "temperature"
+    # - "u_component_of_wind"
+    # - "v_component_of_wind"
+  
+  pressure_levels:
+    # - 50
+    - 100
+    # - 150
+    - 200
+    # - 250
+    - 300
+    # - 400
+    # - 500
+    # - 600
+    # - 700
+    # - 850
+    # - 925
+    # - 1000
+  
+  static_variables:
+    - "land_sea_mask"
+    - "soil_type"
+  
+  # Train/Val/Test year ranges
+  train_years: [1959, 2017]
+  val_years: [2018, 2020]
+  test_years: [2021, 2023]
+
+# Data Loading Configuration
+dataloader:
+  batch_size: 128
+  num_workers: 8
+  pin_memory: true
+  persistent_workers: true
+  shuffle: false  # False for time series data
+
+# Model Configuration
+model:
+  name: "Pangu_lite"
+
+# Training Configuration
+training:
+  num_epochs: 500
+  accumulation_steps: 1
+  learning_rate: 5e-4
+  weight_decay: 3e-6
+  optimizer: "AdamW"
+  optimizer_betas: [0.9, 0.999]
+  optimizer_eps: 1e-8
+  
+  # Learning rate scheduler
+  scheduler: "OneCycleLR"
+  scheduler_max_lr: 5e-4
+  scheduler_pct_start: 0.3
+  scheduler_anneal_strategy: "cos"
+  
+  # Loss functions
+  surface_loss: "L1Loss"
+  upper_air_loss: "L1Loss"
+  surface_loss_weight: 0.25
+  
+  # Gradient clipping
+  max_grad_norm: 1.0
+  
+  # Early stopping
+  early_stopping_patience: 30
+  early_stopping_min_delta: 1e-4
+
+# Mixed Precision Training (AMP)
+amp:
+  enabled: true
+  dtype: "float16"
+
+# Logging Configuration
+logging:
+  log_dir: "/storage/arpit/Pangu/Logs/run_500epoch_30patience"
+  save_frequency: 1  # Save best model every epoch
+  log_histogram_frequency: 5  # Log weight/grad histograms every N epochs
+  
+# Weights & Biases Configuration
+wandb:
+  enabled: true
+  entity: "arpit-arya-iiser-pune"
+  project: "Pangu_Weather_Prediction"
+  notes: "Training Pangu weather prediction model on ERA5 data"
+  tags:
+    - "weather-prediction"
+    - "pangu"
+    - "era5"
+  
+  # W&B advanced features
+  watch_model: true  # Automatically log gradients and parameters
+  watch_log_freq: 100  # Log every N batches
+  system_sample_rate: 2  # Sample system metrics every N seconds (CPU, GPU, etc.)
+
+
+# Device Configuration
+device:
+  cuda: true
+  seed: 42
+
+# Chunking Configuration
+chunking:
+  enabled: true
+  # chunk_size will be calculated as: batch_size * accumulation_steps
