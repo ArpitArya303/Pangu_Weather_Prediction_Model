@@ -494,13 +494,13 @@ class Pangu_lite(nn.Module):
         self.patchembed2d = PatchEmbed2D(
             img_size=(64, 32),
             patch_size=(4, 4),
-            in_chans=2 + 2,        # 2 surface vars + 2 static vars
+            in_chans=4 + 2,        # 2 surface vars + 2 static vars
             embed_dim=embed_dim,
         )
         self.patchembed3d = PatchEmbed3D(
             img_size=(3, 64, 32),
             patch_size=(2, 4, 4),
-            in_chans=2,            # 2 upper air vars
+            in_chans=5,            # 2 upper air vars
             embed_dim=embed_dim
         )
 
