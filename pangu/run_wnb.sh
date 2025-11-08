@@ -2,12 +2,12 @@
 #SBATCH --job-name=Pangu       
 #SBATCH --nodes=1                    
 #SBATCH --ntasks=1                   		
-#SBATCH --cpus-per-task=8            
+#SBATCH --cpus-per-task=64            
 #SBATCH --partition=gpu_prio  
 #SBATCH --gres=gpu:1
-#SBATCH --time=00:09:59      
-#SBATCH --output=/storage/arpit/Pangu/Output/output_train.log  # Save logs here
-#SBATCH --error=/storage/arpit/Pangu/Output/error_train.log
+#SBATCH --time=7-23:59:59      
+#SBATCH --output=/storage/arpit/Pangu/Output/output_train_wnb.log  # Save logs here
+#SBATCH --error=/storage/arpit/Pangu/Output/error_train_wnb.log
 
 # Print job information
 echo "Job ID: $SLURM_JOB_ID"
@@ -26,8 +26,12 @@ module load cudnn-8.2
 echo "CUDA devices:"
 nvidia-smi
 
+export PYTHONPATH="/storage/arpit:${PYTHONPATH}"
+
 echo "Job started at: $(date)"
 
-python -u test.py --model_name epochs/pangu_lite_epoch_10.pth --lead_time 24
+python -u pangu_train_wnb.py \
+    --config /storage/arpit/Pangu/Pangu_Weather_Prediction_Model/pangu/config.yml \
+    --run_name run_500epoch_30patience_wnb \
 
 echo "Job ended at: $(date)"

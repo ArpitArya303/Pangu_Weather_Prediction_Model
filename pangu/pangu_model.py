@@ -477,7 +477,7 @@ class Pangu_lite(nn.Module):
         window_size (tuple[int]): Window size.
     """
     
-    def __init__(self, embed_dim=192, num_heads=(6, 12, 12, 6), window_size=(2, 8, 4)):
+    def __init__(self, embed_dim=192, num_heads=(6, 12, 12, 6), window_size=(2, 6, 12)):
         super().__init__()
         drop_path = np.linspace(0, 0.2, 8).tolist()
         
@@ -494,13 +494,13 @@ class Pangu_lite(nn.Module):
         self.patchembed2d = PatchEmbed2D(
             img_size=(64, 32),
             patch_size=(4, 4),
-            in_chans=2 + 2,        # 2 surface vars + 2 static vars
+            in_chans=4 + 2,        # 2 surface vars + 2 static vars
             embed_dim=embed_dim,
         )
         self.patchembed3d = PatchEmbed3D(
             img_size=(3, 64, 32),
             patch_size=(2, 4, 4),
-            in_chans=2,            # 2 upper air vars
+            in_chans=5,            # 2 upper air vars
             embed_dim=embed_dim
         )
 
@@ -559,12 +559,12 @@ class Pangu_lite(nn.Module):
             (64, 32),
             (4, 4),
             2 * embed_dim, 
-            2)
+            4)
         self.patchrecovery3d = PatchRecovery3D(
             (3, 64, 32),
             (2, 4, 4),
             2 * embed_dim, 
-            2)
+            5)
         
     def forward(self, surface, surface_mask, upper_air):
         """
