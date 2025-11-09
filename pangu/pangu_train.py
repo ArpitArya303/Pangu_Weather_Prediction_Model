@@ -232,10 +232,10 @@ def train(model, train_loader, val_loader, train_data, val_data, surface_criteri
         print(f"Surface MSE: {surface_mse:.4f}, Upper Air MSE: {upper_air_mse:.4f}")
         print(f"Learning Rate: {current_lr:.6f}")
 
-        # Early stopping check
-        if early_stopping(val_loss):
-            print("Early stopping triggered")
-            break
+        # # Early stopping check
+        # if early_stopping(val_loss):
+        #     print("Early stopping triggered")
+        #     break
 
         # Clear memory
         torch.cuda.empty_cache()

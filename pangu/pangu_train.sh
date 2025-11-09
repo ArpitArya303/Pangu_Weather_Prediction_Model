@@ -2,7 +2,7 @@
 #SBATCH --job-name=Pangu 
 #SBATCH --nodes=1                    
 #SBATCH --ntasks=1                   		
-#SBATCH --cpus-per-task=64            
+#SBATCH --cpus-per-task=16         
 #SBATCH --partition=iiser_gpu  
 #SBATCH --gres=gpu:1
 #SBATCH --time=7-23:59:59      
@@ -38,8 +38,7 @@ python -u pangu_train.py \
     --static_variables soil_type land_sea_mask \
     --batch_size 64 \
     --num_epochs 200 \
-    --log_dir /storage/arpit/Pangu/Logs/exp_19var/run_200epoch_64b \
+    --log_dir /storage/arpit/Pangu/Logs/exp_19var/run_200epoch_64b1 \
     --transform_dir /storage/arpit/Pangu/Pangu_Weather_Prediction_Model/pangu/data/test_19var \
-    --accumulation_steps 1 \
-
+    --accumulation_steps 1 
 echo "Job ended at: $(date)"
