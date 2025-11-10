@@ -56,39 +56,43 @@ def upper_air_transform(mean_path, std_path):
 def surface_inv_transform(mean_path, std_path):
     with open(mean_path, "rb") as f:
         surface_mean = pickle.load(f)
+
     with open(std_path, "rb") as f:
         surface_std = pickle.load(f)
 
-    variables = sorted(surface_mean.keys())
-    mean_seq = [surface_mean[v] for v in variables]
-    std_seq = [surface_std[v] for v in variables]
+    mean_seq, std_seq, channel_seq = [], [], []
+    variables = sorted(list(surface_mean.keys()))
+    for v in variables:
+        channel_seq.append(v)
+        mean_seq.append(surface_mean[v])
+        std_seq.append(surface_std[v])
 
-    # inverse of Normalize(mean, std) is Normalize(-mean/std, 1/std)
     invTrans = Compose([
-        Normalize(mean=[-m / s for m, s in zip(mean_seq, std_seq)],
-                  std=[1 / s for s in std_seq])
+        Normalize([0.] * len(mean_seq), [1 / x for x in std_seq]), 
+        Normalize([-x for x in mean_seq], [1.] * len(std_seq))
     ])
-    return invTrans, variables
+    return invTrans, channel_seq
 
 
 def upper_air_inv_transform(mean_path, std_path):
     with open(mean_path, "rb") as f:
         upper_air_mean = pickle.load(f)
+
     with open(std_path, "rb") as f:
         upper_air_std = pickle.load(f)
 
-    # Extract unique pressure levels and variables from tuple keys
-    # Keys are in format: (variable_name, pressure_level)
-    pLevels = sorted(set(pl for (var, pl) in upper_air_mean.keys()))
-    variables = sorted(set(var for (var, pl) in upper_air_mean.keys()))
-
+    pLevels = sorted(list(upper_air_mean.keys()))
+    variables = sorted(list(list(upper_air_mean.values())[0].keys()))
     normalize = {}
     for pl in pLevels:
-        mean_seq = [upper_air_mean[(v, pl)] for v in variables]
-        std_seq = [upper_air_std[(v, pl)] for v in variables]
+        mean_seq, std_seq = [], []
+        for v in variables:
+            mean_seq.append(upper_air_mean[pl][v])
+            std_seq.append(upper_air_std[pl][v])
+
         invTrans = Compose([
-            Normalize(mean=[-m / s for m, s in zip(mean_seq, std_seq)],
-                      std=[1 / s for s in std_seq])
+            Normalize([0.] * len(mean_seq), [1 / x for x in std_seq]), 
+            Normalize([-x for x in mean_seq], [1.] * len(std_seq))
         ])
         normalize[pl] = invTrans
 
@@ -197,7 +201,7 @@ class ZarrWeatherDataset(Dataset):
         self.chunk_size = chunk_size
 
         # Cache dataset dimensions
-        self.dims = dict(self.ds.sizes)
+        self.dims = dict(self.ds.dims)
         
         # Pre-compute pressure level indices
         if 'level' in self.ds.dims:
