@@ -115,6 +115,11 @@ def predict(model, dataloader, device, surface_mask, surface_invTrans, upper_air
     
     return predictions
 
+def debug_channel_ranges(surface_tensor, surface_vars):
+    arr = surface_tensor.detach().cpu().numpy()
+    for i, v in enumerate(surface_vars):
+        ch = arr[0, i]  # first sample
+        print(f"[DEBUG] {v}: min={ch.min():.2f} max={ch.max():.2f} mean={ch.mean():.2f}")
 
 def main():
     parser = argparse.ArgumentParser(description="Run weather prediction inference.")
@@ -168,7 +173,9 @@ def main():
         os.path.join(args.transform_dir, "surface_mean.pkl"),
         os.path.join(args.transform_dir, "surface_std.pkl")
     )
-    
+    print("[DEBUG] Surface variable ranges after inverse transform:")
+    debug_channel_ranges(surface_invTrans(torch.zeros(1, len(args.surface_variables), 64, 32)), args.surface_variables)
+
     upper_air_invTrans, _, pLevels = upper_air_inv_transform(
         os.path.join(args.transform_dir, "upper_air_mean.pkl"),
         os.path.join(args.transform_dir, "upper_air_std.pkl")
@@ -229,18 +236,38 @@ def main():
     
     # Save predictions to disk
     os.makedirs(args.output_path, exist_ok=True)
+    # Save a one-time metadata file for plotting/mapping
+    meta_path = os.path.join(args.output_path, "metadata.npz")
+    if not os.path.exists(meta_path):
+        np.savez(
+            meta_path,
+            surface_vars=np.array(args.surface_variables, dtype=object),
+            upper_air_vars=np.array(args.upper_air_variables, dtype=object),
+            pressure_levels=np.array(pLevels, dtype=np.int32),
+            lead_time_hours=args.lead_time,
+        )
+        print(f"Saved metadata: {meta_path}")
+
     for pred in predictions:
         sample_idx = pred['sample_idx']
-        output_file = os.path.join(args.output_path, f'prediction_sample{sample_idx}.npz')
-        np.savez(output_file, 
-                 surface=pred['surface'],
-                 upper_air=pred['upper_air'],
-                 p_levels=np.array(pLevels, dtype=np.int32),
-                 sample_idx=sample_idx)
-        print(f"Saved prediction to: {output_file}")
-    
-    print(f"\n Prediction complete! Saved {len(predictions)} predictions to {args.output_path}")
 
+        # These are already denormalized and transposed to (C, Lat, Lon)/(C, Pl, Lat, Lon)
+        surface_arr = pred['surface']         # shape: (Cs, Lat, Lon)
+        upper_air_arr = pred['upper_air']     # shape: (Cu, Pl, Lat, Lon)
+
+        output_file = os.path.join(args.output_path, f'prediction_sample{sample_idx}.npz')
+        np.savez(
+            output_file,
+            sample_idx=sample_idx,
+            surface=surface_arr,
+            upper_air=upper_air_arr,
+            p_levels=np.array(pLevels, dtype=np.int32),
+            surface_vars=np.array(args.surface_variables, dtype=object),
+            upper_air_vars=np.array(args.upper_air_variables, dtype=object),
+        )
+        print(f"Saved prediction: {output_file}")
+
+    print(f"\nPrediction complete! Saved {len(predictions)} predictions to {args.output_path}")
 
 if __name__ == "__main__":
     main()

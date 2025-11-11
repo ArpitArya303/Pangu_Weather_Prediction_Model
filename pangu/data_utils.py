@@ -10,94 +10,156 @@ from torch.utils.data import Dataset
 from torchvision.transforms import Normalize, Compose
 
 def surface_transform(mean_path, std_path):
+    """
+    Create normalization transform for surface variables.
+    Structure: mean[variable] = float
+    """
     with open(mean_path, "rb") as f:
         surface_mean = pickle.load(f)
 
     with open(std_path, "rb") as f:
         surface_std = pickle.load(f)
 
-    mean_seq, std_seq, channel_seq = [], [], []
     variables = sorted(list(surface_mean.keys()))
-    for v in variables:
-        channel_seq.append(v)
-        mean_seq.append(surface_mean[v])
-        std_seq.append(surface_std[v])
+    
+    mean_seq = [surface_mean[v] for v in variables]
+    std_seq = [surface_std[v] for v in variables]
 
-    return Normalize(mean_seq, std_seq), channel_seq
+    return Normalize(mean_seq, std_seq), variables
 
 
 def upper_air_transform(mean_path, std_path):
+    """
+    Create normalization transforms for upper air variables.
+    Structure: mean[(variable, pressure_level)] = float
+    
+    Returns:
+        transforms: dict mapping pressure_level -> Normalize transform
+        variables: sorted list of variable names  
+        pLevels: sorted list of pressure levels
+    """
     with open(mean_path, "rb") as f:
         upper_air_mean = pickle.load(f)
 
     with open(std_path, "rb") as f:
         upper_air_std = pickle.load(f)
 
+    # Extract unique variables and pressure levels from tuple keys
     variables = set()
     pLevels = set()
     
-    # Extract variables and levels from tuple keys
-    for (var, level) in upper_air_mean.keys():
-        variables.add(var)
-        pLevels.add(level)
+    for key in upper_air_mean.keys():
+        if isinstance(key, tuple) and len(key) == 2:
+            var, pl = key
+            variables.add(var)
+            pLevels.add(pl)
     
     variables = sorted(list(variables))
     pLevels = sorted(list(pLevels))
-
-    normalize = {}
-
+    
+    # Create transforms per pressure level
+    transforms = {}
+    
     for pl in pLevels:
-        mean_seq = [upper_air_mean[(v, pl)] for v in variables]
-        std_seq = [upper_air_std[(v, pl)] for v in variables]
-        normalize[pl] = Normalize(mean_seq, std_seq)
+        means = []
+        stds = []
+        
+        for v in variables:
+            key = (v, pl)
+            if key in upper_air_mean and key in upper_air_std:
+                means.append(upper_air_mean[key])
+                stds.append(upper_air_std[key])
+            else:
+                print(f"WARNING: Missing stats for {key}")
+                means.append(0.0)
+                stds.append(1.0)
+        
+        # Create Normalize transform for this pressure level
+        transforms[pl] = Normalize(mean=means, std=stds)
+    
+    return transforms, variables, pLevels
 
-    return normalize, variables, pLevels
 
 def surface_inv_transform(mean_path, std_path):
+    """
+    Create inverse normalization transform for surface variables.
+    Structure: mean[variable] = float
+    Inverse formula: x_original = x_normalized * std + mean
+    """
     with open(mean_path, "rb") as f:
         surface_mean = pickle.load(f)
 
     with open(std_path, "rb") as f:
         surface_std = pickle.load(f)
 
-    mean_seq, std_seq, channel_seq = [], [], []
     variables = sorted(list(surface_mean.keys()))
-    for v in variables:
-        channel_seq.append(v)
-        mean_seq.append(surface_mean[v])
-        std_seq.append(surface_std[v])
-
-    invTrans = Compose([
-        Normalize([0.] * len(mean_seq), [1 / x for x in std_seq]), 
-        Normalize([-x for x in mean_seq], [1.] * len(std_seq))
-    ])
-    return invTrans, channel_seq
+    
+    # Single-step inverse transform
+    # For Normalize: output = (input - mean_param) / std_param
+    # We want: output = input * std + mean
+    # So set: mean_param = -mean/std, std_param = 1/std
+    # Then: output = (input - (-mean/std)) / (1/std) = input * std + mean
+    
+    mean_seq = [-surface_mean[v] / surface_std[v] for v in variables]
+    std_seq = [1.0 / surface_std[v] for v in variables]
+    
+    invTrans = Normalize(mean_seq, std_seq)
+    
+    return invTrans, variables
 
 
 def upper_air_inv_transform(mean_path, std_path):
+    """
+    Create inverse normalization transforms for upper air variables.
+    Structure: mean[(variable, pressure_level)] = float
+    Inverse formula: x_original = x_normalized * std + mean
+    
+    Returns:
+        inv_transforms: dict mapping pressure_level -> Normalize transform
+        variables: sorted list of variable names
+        pLevels: sorted list of pressure levels
+    """
     with open(mean_path, "rb") as f:
         upper_air_mean = pickle.load(f)
 
     with open(std_path, "rb") as f:
         upper_air_std = pickle.load(f)
-
-    pLevels = sorted(list(upper_air_mean.keys()))
-    variables = sorted(list(list(upper_air_mean.values())[0].keys()))
-    normalize = {}
+    
+    # Extract unique variables and pressure levels from tuple keys
+    variables = set()
+    pLevels = set()
+    
+    for key in upper_air_mean.keys():
+        if isinstance(key, tuple) and len(key) == 2:
+            var, pl = key
+            variables.add(var)
+            pLevels.add(pl)
+    
+    variables = sorted(list(variables))
+    pLevels = sorted(list(pLevels))
+    
+    # Create inverse transforms per pressure level
+    inv_transforms = {}
+    
     for pl in pLevels:
-        mean_seq, std_seq = [], []
+        means = []
+        stds = []
+        
         for v in variables:
-            mean_seq.append(upper_air_mean[pl][v])
-            std_seq.append(upper_air_std[pl][v])
-
-        invTrans = Compose([
-            Normalize([0.] * len(mean_seq), [1 / x for x in std_seq]), 
-            Normalize([-x for x in mean_seq], [1.] * len(std_seq))
-        ])
-        normalize[pl] = invTrans
-
-    return normalize, variables, pLevels
-
+            key = (v, pl)
+            if key in upper_air_mean and key in upper_air_std:
+                # Single-step inverse: mean_param = -mean/std, std_param = 1/std
+                means.append(-upper_air_mean[key] / upper_air_std[key])
+                stds.append(1.0 / upper_air_std[key])
+            else:
+                print(f"WARNING: Missing stats for {key}")
+                means.append(0.0)
+                stds.append(1.0)
+        
+        # Create inverse Normalize transform for this pressure level
+        inv_transforms[pl] = Normalize(mean=means, std=stds)
+    
+    return inv_transforms, variables, pLevels
 
 # class DatasetFromFolder(Dataset):
 #     def __init__(self, dataset_dir, flag: Literal["train", "test", "valid"]):

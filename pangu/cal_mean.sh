@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=Pangu       
+#SBATCH --job-name=Pangu_mean       
 #SBATCH --nodes=1                    
 #SBATCH --ntasks=1                   		
 #SBATCH --cpus-per-task=64            

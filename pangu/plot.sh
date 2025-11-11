@@ -28,17 +28,18 @@ nvidia-smi
 
 export PYTHONPATH="/storage/arpit:${PYTHONPATH}"
 
-# Step 2 : Create comparison plots for SPECIFIC pressure levels only
+# Create comparison plots for SPECIFIC pressure levels only
 echo "Creating comparison plots for SPECIFIC pressure levels (250, 500, 850 hPa)..."
 python plot.py \
     --mode compare \
     --data_path /home/bedartha/public/datasets/as_downloaded/weatherbench2/era5/1959-2023_01_10-6h-64x32_equiangular_conservative.zarr \
-    --prediction_dir /storage/arpit/Pangu/Pangu_Weather_Prediction_Model/pangu/prediction/test_19var/ \
-    --output_dir /storage/arpit/Pangu/Pangu_Weather_Prediction_Model/pangu/visualizations/test_19var/ \
+    --prediction_dir /storage/arpit/Pangu/Pangu_Weather_Prediction_Model/pangu/prediction/exp_8var/original \
+    --output_dir /storage/arpit/Pangu/Pangu_Weather_Prediction_Model/pangu/visualizations/exp_8var/original_together \
     --lead_time 6 \
-    --surface_variables 2m_temperature mean_sea_level_pressure 10m_u_component_of_wind 10m_v_component_of_wind \
-    --upper_air_variables geopotential specific_humidity temperature u_component_of_wind v_component_of_wind \
-    --pressure_levels 250 500 850
+    --surface_variables 2m_temperature mean_sea_level_pressure  \
+    --upper_air_variables geopotential  temperature \
+    --pressure_levels 100 200 300 \
+    --num_samples 2 \
 
-echo "Done! Check /storage/arpit/Pangu/Pangu_Weather_Prediction_Model/pangu/visualizations/test_19var for the comparison plots at specific levels."
+echo "Done! Check /storage/arpit/Pangu/Pangu_Weather_Prediction_Model/pangu/visualizations/exp_8var/original_together for the comparison plots at specific levels."
 
