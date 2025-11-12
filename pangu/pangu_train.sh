@@ -1,13 +1,13 @@
 #!/bin/bash
-#SBATCH --job-name=Pangu 
+#SBATCH --job-name=Pangu1 
 #SBATCH --nodes=1                    
 #SBATCH --ntasks=1                   		
 #SBATCH --cpus-per-task=16         
 #SBATCH --partition=iiser_gpu  
 #SBATCH --gres=gpu:1
 #SBATCH --time=7-23:59:59      
-#SBATCH --output=/storage/arpit/Pangu/Output/output_train.log  # Save logs here
-#SBATCH --error=/storage/arpit/Pangu/Output/error_train.log
+#SBATCH --output=/storage/arpit/Pangu/Output/output_train1.log  # Save logs here
+#SBATCH --error=/storage/arpit/Pangu/Output/error_train1.log
 
 # Print job information
 echo "Job ID: $SLURM_JOB_ID"
@@ -37,8 +37,8 @@ python -u pangu_train.py \
     --pLevels 250 500 850 \
     --static_variables soil_type land_sea_mask \
     --batch_size 64 \
-    --num_epochs 200 \
-    --log_dir /storage/arpit/Pangu/Logs/exp_19var/run_200epoch_64b1 \
-    --transform_dir /storage/arpit/Pangu/Pangu_Weather_Prediction_Model/pangu/data/test_19var \
+    --num_epochs 300 \
+    --log_dir /storage/arpit/Pangu/Logs/exp_19var/run_300epoch_64b \
+    --transform_dir /storage/arpit/Pangu/Pangu_Weather_Prediction_Model/pangu/data/exp_19var \
     --accumulation_steps 1 
 echo "Job ended at: $(date)"

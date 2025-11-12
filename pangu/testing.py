@@ -10,13 +10,13 @@ from Pangu.Pangu_Weather_Prediction_Model.pangu.data_utils import (
 
 t0 = time.time()
 surface_normalizer, _ = surface_transform(
-    os.path.join("/storage/arpit/Pangu/Pangu_Weather_Prediction_Model/pangu/data", "surface_mean.pkl"),
-    os.path.join("/storage/arpit/Pangu/Pangu_Weather_Prediction_Model/pangu/data", "surface_std.pkl")
+    os.path.join("/storage/arpit/Pangu/Pangu_Weather_Prediction_Model/pangu/data/exp_19var", "surface_mean.pkl"),
+    os.path.join("/storage/arpit/Pangu/Pangu_Weather_Prediction_Model/pangu/data/exp_19var", "surface_std.pkl")
     )
 
 upper_air_normalizer, _, _ = upper_air_transform(
-    os.path.join("/storage/arpit/Pangu/Pangu_Weather_Prediction_Model/pangu/data", "upper_air_mean.pkl"),
-    os.path.join("/storage/arpit/Pangu/Pangu_Weather_Prediction_Model/pangu/data", "upper_air_std.pkl")
+    os.path.join("/storage/arpit/Pangu/Pangu_Weather_Prediction_Model/pangu/data/exp_19var", "upper_air_mean.pkl"),
+    os.path.join("/storage/arpit/Pangu/Pangu_Weather_Prediction_Model/pangu/data/exp_19var", "upper_air_std.pkl")
     )
 # Train dataset creation
 dataset = ZarrWeatherDataset(

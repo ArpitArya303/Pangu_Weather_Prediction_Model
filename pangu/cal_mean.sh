@@ -32,5 +32,5 @@ python -u cal_mean_std.py --zarr_path /home/bedartha/public/datasets/as_download
     --surface_variables 2m_temperature mean_sea_level_pressure 10m_u_component_of_wind 10m_v_component_of_wind \
     --upper_air_variables geopotential specific_humidity temperature u_component_of_wind v_component_of_wind \
     --plevels 250 500 850 \
-    --output_dir /storage/arpit/Pangu/Pangu_Weather_Prediction_Model/pangu/data/test_19var
+    --output_dir /storage/arpit/Pangu/Pangu_Weather_Prediction_Model/pangu/data/exp_19var
 echo "Job ended at: $(date)"
