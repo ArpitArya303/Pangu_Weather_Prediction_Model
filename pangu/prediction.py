@@ -162,21 +162,22 @@ def main():
         os.path.join(args.transform_dir, "surface_std.pkl")
     )
     
-    upper_air_normalizer, upper_vars, plevels = upper_air_transform(
+    upper_air_normalizer, upper_air_vars, plevels = upper_air_transform(
         os.path.join(args.transform_dir, "upper_air_mean.pkl"),
         os.path.join(args.transform_dir, "upper_air_std.pkl")
     )
     
     # Load inverse transforms
     print("Loading inverse transforms...")
-    surface_invTrans, _ = surface_inv_transform(
+    surface_invTrans, inv_surface_vars = surface_inv_transform(
         os.path.join(args.transform_dir, "surface_mean.pkl"),
         os.path.join(args.transform_dir, "surface_std.pkl")
     )
     print("[DEBUG] Surface variable ranges after inverse transform:")
-    debug_channel_ranges(surface_invTrans(torch.zeros(1, len(args.surface_variables), 64, 32)), args.surface_variables)
 
-    upper_air_invTrans, _, pLevels = upper_air_inv_transform(
+    debug_channel_ranges(surface_invTrans(torch.zeros(1, len(inv_surface_vars), 64, 32)), inv_surface_vars)
+
+    upper_air_invTrans, inv_upper_vars, pLevels = upper_air_inv_transform(
         os.path.join(args.transform_dir, "upper_air_mean.pkl"),
         os.path.join(args.transform_dir, "upper_air_std.pkl")
     )
@@ -241,8 +242,8 @@ def main():
     if not os.path.exists(meta_path):
         np.savez(
             meta_path,
-            surface_vars=np.array(args.surface_variables, dtype=object),
-            upper_air_vars=np.array(args.upper_air_variables, dtype=object),
+            surface_vars=np.array(surface_vars, dtype=object),
+            upper_air_vars=np.array(upper_air_vars, dtype=object),
             pressure_levels=np.array(pLevels, dtype=np.int32),
             lead_time_hours=args.lead_time,
         )
@@ -262,8 +263,8 @@ def main():
             surface=surface_arr,
             upper_air=upper_air_arr,
             p_levels=np.array(pLevels, dtype=np.int32),
-            surface_vars=np.array(args.surface_variables, dtype=object),
-            upper_air_vars=np.array(args.upper_air_variables, dtype=object),
+            surface_vars=np.array(surface_vars, dtype=object),
+            upper_air_vars=np.array(upper_air_vars, dtype=object),
         )
         print(f"Saved prediction: {output_file}")
 

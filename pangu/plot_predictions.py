@@ -3,12 +3,18 @@
 import os
 import argparse
 import numpy as np
+import xarray as xr
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-import cartopy.crs as ccrs
-import cartopy.feature as cfeature
-from cartopy.util import add_cyclic_point
+try:
+    import cartopy.crs as ccrs
+    import cartopy.feature as cfeature
+    from cartopy.util import add_cyclic_point
+    HAS_CARTOPY = True
+except ImportError:
+    HAS_CARTOPY = False
+    print("⚠️ Cartopy not installed; plots requiring cartopy will be skipped.")
 
 def _load_metadata(prediction_dir: str):
     """Load metadata.npz if present."""
@@ -192,10 +198,12 @@ def main(args):
                 if try_pos >= surface.shape[0]:
                     print(f"  ⚠️ Skipping surface '{var_name}': no matching channel")
                     continue
-                ch_idx = try_pos
+                ch_idx = try_pos        
             pred_field = surface[ch_idx, :, :]
+
+            # Plot prediction only
             plot_surface(pred_field, var_name, lats, lons, args.cmap,
-                         os.path.join(args.output_dir, "surface"), sample_idx)
+                          os.path.join(args.output_dir, "surface"), sample_idx)
 
         # Upper-air: map names via metadata if available
         for var_name in upper_vars:
@@ -206,14 +214,15 @@ def main(args):
                     print(f"  ⚠️ Skipping upper-air '{var_name}': no matching channel")
                     continue
                 ch_idx = try_pos
-            plot_upper_air(upper_air[ch_idx, :, :, :], var_name, lats, lons,
-                           p_levels, requested_levels, args.cmap,
+            pred_field = upper_air[ch_idx, :, :, :]  # (Pl, Lat, Lon)
+            plot_upper_air(pred_field, var_name, lats, lons, p_levels, requested_levels,
+                           args.cmap,
                            os.path.join(args.output_dir, "upper_air"), sample_idx)
-
     print(f"\n✅ All plots saved under: {args.output_dir}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Plot Pangu model prediction outputs (.npz files)")
+    parser.add_argument("--zarr_path", type=str,required=True,help="Directory containing the dataset")
     parser.add_argument("--prediction_dir", type=str, required=True,
                         help="Directory containing prediction .npz files")
     parser.add_argument("--output_dir", type=str, required=True,
@@ -230,6 +239,10 @@ if __name__ == "__main__":
                              "Default: metadata pressure_levels (all)")
     parser.add_argument("--sample_limit", type=int, default=None,
                         help="Limit number of samples to plot")
+    parser.add_argument("--test_years", type=int, nargs='+', default=[2021, 2023],
+                        help="Year range for test data (default: 2021 2023)")
+    parser.add_argument("--lead_time_hours", type=int, default=6,
+                       help="Lead time in hours (default: 6, used if metadata missing)")
     args = parser.parse_args()
 
     os.makedirs(args.output_dir, exist_ok=True)
