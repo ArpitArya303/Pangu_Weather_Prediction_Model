@@ -254,8 +254,8 @@ class ZarrWeatherDataset(Dataset):
             chunk_size (int, optional): Number of samples to load at once. Defaults to 1.
         """
         self.ds = xr.open_zarr(zarr_path, chunks={'time': chunk_size})
-        self.surface_vars = surface_vars
-        self.upper_air_vars = upper_air_vars
+        self.surface_vars = sorted(surface_vars)
+        self.upper_air_vars = sorted(upper_air_vars)
         self.plevels = sorted(plevels)
         self.static_vars = static_vars if static_vars is not None else []
         self.surface_transform = surface_transform
