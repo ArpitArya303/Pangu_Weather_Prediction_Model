@@ -146,7 +146,7 @@ def main():
     parser.add_argument("--batch_size", type=int, default=128, help="Batch size for inference")
     parser.add_argument("--num_workers", type=int, default=4, help="Number of data loading workers")
     parser.add_argument("--num_samples", type=int, default=5, help="Maximum number of samples to predict")
-    parser.add_argument("--lead_time", type=int, default=24, help="Lead time in hours (must be multiple of 6)")
+    parser.add_argument("--lead_time", type=int, default=6, help="Lead time in hours (must be multiple of 6)")
 
     args = parser.parse_args()
 
