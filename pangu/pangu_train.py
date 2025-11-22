@@ -77,9 +77,9 @@ def train_step(model, dataloader, surface_criterion, upper_air_criterion, optimi
 
         running_loss += loss.item() * batch_size
 
-        # Clear cache periodically
-        if i % 10 == 0:
-            torch.cuda.empty_cache()
+        # # Clear cache periodically
+        # if i % 10 == 0:
+        #     torch.cuda.empty_cache()
 
     # Calculate average loss for the epoch
     total_samples = len(train_dataset)  # Get total number of samples directly from dataset
@@ -232,13 +232,13 @@ def train(model, train_loader, val_loader, train_data, val_data, surface_criteri
         print(f"Surface MSE: {surface_mse:.4f}, Upper Air MSE: {upper_air_mse:.4f}")
         print(f"Learning Rate: {current_lr:.6f}")
 
-        # Early stopping check
-        if early_stopping(val_loss):
-            print("Early stopping triggered")
-            break
+        # # Early stopping check
+        # if early_stopping(val_loss):
+        #     print("Early stopping triggered")
+        #     break
 
         # Clear memory
-        torch.cuda.empty_cache()
+        #torch.cuda.empty_cache()
 
     writer_train.close()
     writer_val.close()
