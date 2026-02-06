@@ -643,7 +643,7 @@ class Pangu_mid(nn.Module):
         # Update input_resolution to match the actual tensor size
         self.layer1 = BasicLayer(
             dim=embed_dim,
-            input_resolution=(3, 60, 30),  # Pl=3, Lat=60, Lon=30   
+            input_resolution=(3, 60, 31),  # Pl=3, Lat=60, Lon=31   
             depth=2,
             num_heads=num_heads[0],
             window_size=window_size,
@@ -652,13 +652,13 @@ class Pangu_mid(nn.Module):
         
         self.downsample = DownSample(
             in_dim=embed_dim, 
-            input_resolution=(3, 60, 30),    # Match layer1
-            output_resolution=(3, 30, 15)     # Half spatial resolution
+            input_resolution=(3, 60, 31),    # Match layer1
+            output_resolution=(3, 30, 16)     # Half spatial resolution
         )
         
         self.layer2 = BasicLayer(
             dim=embed_dim * 2,
-            input_resolution=(3, 30, 15),     # Downsampled resolution
+            input_resolution=(3, 30, 16),     # Downsampled resolution
             depth=6,
             num_heads=num_heads[1],
             window_size=window_size,
@@ -667,7 +667,7 @@ class Pangu_mid(nn.Module):
         
         self.layer3 = BasicLayer(
             dim=embed_dim * 2,
-            input_resolution=(3, 30, 15),     # Same as layer2
+            input_resolution=(3, 30, 16),     # Same as layer2
             depth=6,
             num_heads=num_heads[2],
             window_size=window_size,
@@ -677,13 +677,13 @@ class Pangu_mid(nn.Module):
         self.upsample = UpSample(
             embed_dim * 2, 
             embed_dim, 
-            (3, 30, 15),    # Match layer3
-            (3, 60, 30)    # Back to original resolution
+            (3, 30, 16),    # Match layer3
+            (3, 60, 31)    # Back to original resolution
         )
         
         self.layer4 = BasicLayer(
             dim=embed_dim,
-            input_resolution=(3, 60, 30),    # Back to original resolution
+            input_resolution=(3, 60, 31),    # Back to original resolution
             depth=2,
             num_heads=num_heads[3],
             window_size=window_size,
