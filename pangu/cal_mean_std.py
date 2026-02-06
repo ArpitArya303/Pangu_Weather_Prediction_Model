@@ -2,6 +2,7 @@ import argparse
 import xarray as xr
 import numpy as np
 import pickle
+import os
 from tqdm import tqdm
 
 def cal_mean_std(ds, variables, level_dim=None, pressure_levels=None):
@@ -29,6 +30,8 @@ if __name__ == "__main__":
     print("Parsing arguments...")
     parser.add_argument("--output_dir", type=str, default=".", help="Directory to save the mean and std pickle files")
     opt = parser.parse_args()
+
+    os.makedirs(opt.output_dir, exist_ok=True)
 
     print("Loading dataset...")
     ds = xr.open_zarr(opt.zarr_path)
