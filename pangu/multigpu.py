@@ -6,11 +6,10 @@ import torch
 from tqdm import tqdm
 from torch.utils.data import DataLoader
 from torch import nn
-from torch.utils.tensorboard import SummaryWriter
 from accelerate import Accelerator
 from accelerate.utils import set_seed
 
-from Pangu.Pangu_Weather_Prediction_Model.pangu.pangu_model import Pangu_lite
+from Pangu.Pangu_Weather_Prediction_Model.pangu.pangu_model import Pangu_mid as Pangu 
 from Pangu.Pangu_Weather_Prediction_Model.pangu.data_utils import (
     ZarrWeatherDataset, 
     surface_transform, 
@@ -82,7 +81,7 @@ def train_step(model, dataloader, surface_criterion, upper_air_criterion, optimi
             torch.cuda.empty_cache()
 
     # Gather loss from all processes
-    total_loss = accelerator.gather(torch.tensor(running_loss, device=accelerator.device)).sum().item()
+    total_loss = accelerator.reduce(torch.tensor(running_loss, device=accelerator.device), reduction="sum")
     total_samples = len(train_dataset)
     epoch_loss = total_loss / total_samples
 
@@ -160,24 +159,14 @@ class EarlyStopping:
 
 def train(model, train_loader, val_loader, train_data, val_data, surface_criterion, upper_air_criterion, 
           optimizer, accelerator, num_epochs, log_dir, accumulation_steps, stop_patience):
-    train_log_dir = os.path.join(log_dir, 'train_logs')
-    val_log_dir = os.path.join(log_dir, 'val_logs')
-    
-    # Only create writers on main process
-    if accelerator.is_main_process:
-        writer_train = SummaryWriter(log_dir=train_log_dir)
-        writer_val = SummaryWriter(log_dir=val_log_dir)
-    
     early_stopping = EarlyStopping(patience=stop_patience, min_delta=1e-4)
     best_val_loss = float('inf')
     
-    # Learning rate scheduler
-    scheduler = torch.optim.lr_scheduler.OneCycleLR(
+    # Learning rate scheduler: Cosine Annealing
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer,
-        max_lr=5e-4,
-        epochs=num_epochs,
-        steps_per_epoch=len(train_loader) // accumulation_steps,
-        anneal_strategy='cos'
+        T_max=num_epochs,
+        eta_min=1e-6
     )
     
     for epoch in range(1, num_epochs + 1):
@@ -201,22 +190,20 @@ def train(model, train_loader, val_loader, train_data, val_data, surface_criteri
         scheduler.step()
         current_lr = optimizer.param_groups[0]['lr']
 
-        # Log metrics only on main process
-        if accelerator.is_main_process:
-            writer_train.add_scalar('Loss', train_loss, epoch)
-            writer_val.add_scalar('Loss', val_loss, epoch)
-            writer_val.add_scalar('MSE/surface', surface_mse, epoch)
-            writer_val.add_scalar('MSE/upper_air', upper_air_mse, epoch)
-            writer_train.add_scalar('Learning_Rate', current_lr, epoch)
-
-            # Log gradient scalars (mean-abs) for each parameter collected during epoch
-            for name, mag in grad_stats.items():
-                writer_train.add_scalar(f'Gradients/{name}', mag, epoch)
-
-            # Log model weights histograms less frequently to save memory
-            if epoch % 5 == 0:
-                for name, param in model.named_parameters():
-                    writer_train.add_histogram(f'Weight/{name}', param.detach().cpu().numpy(), epoch)
+        # Log metrics with accelerator
+        log_dict = {
+            'train/loss': train_loss.item() if torch.is_tensor(train_loss) else train_loss,
+            'val/loss': val_loss,
+            'val/surface_mse': surface_mse,
+            'val/upper_air_mse': upper_air_mse,
+            'train/learning_rate': current_lr,
+        }
+        
+        # Add gradient statistics to log
+        for name, mag in grad_stats.items():
+            log_dict[f'gradients/{name}'] = mag
+        
+        accelerator.log(log_dict, step=epoch)
 
         # Model checkpointing (only on main process)
         if accelerator.is_main_process:
@@ -248,10 +235,6 @@ def train(model, train_loader, val_loader, train_data, val_data, surface_criteri
 
         # Wait for all processes
         accelerator.wait_for_everyone()
-
-    if accelerator.is_main_process:
-        writer_train.close()
-        writer_val.close()
     
     return model
 
@@ -272,10 +255,12 @@ if __name__ == "__main__":
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     opt = parser.parse_args()
 
+    os.makedirs(opt.log_dir, exist_ok=True)
+    
     # Initialize Accelerator with mixed precision
     accelerator = Accelerator(
         gradient_accumulation_steps=opt.accumulation_steps,
-        mixed_precision='fp16',  # or 'bf16' if your GPU supports it
+        mixed_precision='bf16', 
         log_with="tensorboard",
         project_dir=opt.log_dir
     )
@@ -305,7 +290,7 @@ if __name__ == "__main__":
         upper_air_vars=opt.upper_air_variables,
         plevels=opt.pLevels,
         static_vars=opt.static_variables,
-        year_range=(1959, 2017),
+        year_range=(1979, 2018),
         surface_transform=surface_normalizer,  
         upper_air_transform=upper_air_normalizer,
         chunk_size=chunk_size
@@ -317,7 +302,7 @@ if __name__ == "__main__":
         upper_air_vars=opt.upper_air_variables,
         plevels=opt.pLevels,
         static_vars=opt.static_variables,
-        year_range=(2018,2020),
+        year_range=(2019,2020),
         surface_transform=surface_normalizer,
         upper_air_transform=upper_air_normalizer,
         chunk_size=chunk_size
@@ -346,7 +331,7 @@ if __name__ == "__main__":
         print("Setting up device and model...")
     
     # Initialize model
-    pangu = Pangu_lite()
+    pangu = Pangu()
 
     # Loss functions with label smoothing
     surface_criterion = nn.L1Loss()
