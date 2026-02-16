@@ -1,13 +1,14 @@
 #!/bin/bash
 #SBATCH --job-name=Pangu_6hr
-#SBATCH --nodes=1                    
-#SBATCH --ntasks-per-node=1          # Single task, accelerate handles processes
+#SBATCH --nodes=2                    # 2 nodes for multi-node training
+#SBATCH --ntasks-per-node=1          # Single task per node, accelerate handles processes
 #SBATCH --cpus-per-task=32           # CPUs for data loading
-#SBATCH --partition=GPU-AI_prio  
-#SBATCH --gres=gpu:4                 # Request 4 GPUs
-#SBATCH --time=7-23:59:59      
-#SBATCH --output=/storage/arpit/Pangu/Output/output_train.log
-#SBATCH --error=/storage/arpit/Pangu/Output/error_train.log
+#SBATCH --partition=gpu
+#SBATCH --exclude=cn7,cn15
+#SBATCH --gres=gpu:2                # Request 2 GPUs per node
+#SBATCH --time=7-23:59:59
+#SBATCH --output=/storage/arpit/Pangu/Output/output_train_6hr.log
+#SBATCH --error=/storage/arpit/Pangu/Output/error_train_6hr.log
 
 # Print job information
 echo "======================================"
@@ -30,7 +31,7 @@ python --version
 # module load cuda-12.9
 # module load cudnn-8.2
 
-# Accelerate config expects gpu_ids: 0,1,2,3 and num_processes: 4
+# Accelerate config expects gpu_ids: 0,1 per node (8 total processes across 4 nodes)
 export CUDA_VISIBLE_DEVICES=0,1,2,3
 
 echo "CUDA_VISIBLE_DEVICES: $CUDA_VISIBLE_DEVICES"
@@ -53,14 +54,15 @@ accelerate launch ../multigpu.py \
     --upper_air_variables geopotential specific_humidity temperature u_component_of_wind v_component_of_wind \
     --pLevels 250 500 850 \
     --static_variables soil_type land_sea_mask \
-    --batch_size 64 \
+    --batch_size 16 \
     --num_epochs 200 \
-    --log_dir /storage/arpit/Pangu/Logs/exp_20var/run_200epoch_128b_2gpu \
+    --log_dir /storage/arpit/Pangu/Logs/exp_20var/run_200epoch_6hr_8gpu \
     --transform_dir /storage/arpit/Pangu/Pangu_Weather_Prediction_Model/pangu/data/20var \
     --accumulation_steps 1 \
     --num_workers 8 \
     --patience 10 \
-    --seed 42
+    --seed 42 \
+    --lead_time_hours 6
 
 echo "======================================"
 echo "Job ended at: $(date)"

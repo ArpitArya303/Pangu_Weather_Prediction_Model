@@ -30,15 +30,15 @@ export PYTHONPATH="/storage/arpit:${PYTHONPATH}"
 
 echo "Job started at: $(date)"
 
-python -u pangu_train.py \
-    --data /home/bedartha/public/datasets/as_downloaded/weatherbench2/era5/1959-2023_01_10-6h-64x32_equiangular_conservative.zarr \
-    --surface_variables 2m_temperature mean_sea_level_pressure 10m_u_component_of_wind 10m_v_component_of_wind \
+python -u ../pangu_train.py \
+    --data /home/bedartha/public/datasets/as_downloaded/weatherbench2/era5/1959-2023_01_10-6h-240x121_equiangular_with_poles_conservative.zarr \
+    --surface_variables 2m_temperature mean_sea_level_pressure total_column_water_vapour 10m_u_component_of_wind 10m_v_component_of_wind \
     --upper_air_variables geopotential specific_humidity temperature u_component_of_wind v_component_of_wind \
     --pLevels 250 500 850 \
     --static_variables soil_type land_sea_mask \
     --batch_size 64 \
     --num_epochs 300 \
-    --log_dir /storage/arpit/Pangu/Logs/exp_19var/run_300epoch_64b \
-    --transform_dir /storage/arpit/Pangu/Pangu_Weather_Prediction_Model/pangu/data/exp_19var \
+    --log_dir /storage/arpit/Pangu/Logs/20var/run_300epoch_64b \
+    --transform_dir /storage/arpit/Pangu/Pangu_Weather_Prediction_Model/pangu/data/20var \
     --accumulation_steps 1 
 echo "Job ended at: $(date)"
