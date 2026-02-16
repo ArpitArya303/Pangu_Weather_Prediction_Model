@@ -169,7 +169,7 @@ def get_year_month_day(dt):
 
 class ZarrWeatherDataset(Dataset):
     def __init__(self, zarr_path, surface_vars, upper_air_vars, plevels, static_vars=None, 
-                 year_range=None, split_type='train', surface_transform=None, upper_air_transform=None, chunk_size=1):
+                 year_range=None, split_type='train', surface_transform=None, upper_air_transform=None, chunk_size=1, lead_time_hours=6):
         """Initialize the dataset with optimized data loading.
         Args:
             zarr_path (str): Path to the Zarr dataset.
@@ -182,6 +182,7 @@ class ZarrWeatherDataset(Dataset):
             surface_transform (callable, optional): Transform for surface variables. Defaults to None.
             upper_air_transform (dict, optional): Dict of transforms for upper air variables by pressure level. Defaults to None.
             chunk_size (int, optional): Number of samples to load at once. Defaults to 1.
+            lead_time_hours (int, optional): Forecast lead time in hours (6, 12, 24, etc.). Defaults to 6.
         """
         self.ds = xr.open_zarr(zarr_path, chunks={'time': chunk_size})
         self.surface_vars = sorted(surface_vars)
@@ -191,12 +192,17 @@ class ZarrWeatherDataset(Dataset):
         self.surface_transform = surface_transform
         self.upper_air_transform = upper_air_transform
         self.chunk_size = chunk_size
+        
+        # Calculate timestep offset based on lead time (data is at 6-hour intervals)
+        self.time_offset = lead_time_hours // 6
+        if lead_time_hours % 6 != 0:
+            raise ValueError(f"lead_time_hours must be a multiple of 6, got {lead_time_hours}")
 
         # Cache dataset dimensions
-        self.dims = dict(self.ds.dims)
+        self.sizes = dict(self.ds.sizes)
         
         # Pre-compute pressure level indices
-        if 'level' in self.ds.dims:
+        if 'level' in self.ds.sizes:
             self.plevel_indices = [self.ds.level.values.tolist().index(pl) for pl in self.plevels]
         
         # Cache static variables
@@ -224,7 +230,8 @@ class ZarrWeatherDataset(Dataset):
 
         # Create mask for the specified years
         year_mask = (years >= year_range[0]) & (years <= year_range[1])
-        self.indices = np.where(year_mask)[0][:-1]  # Exclude last timestep for each year
+        # Exclude last time_offset timesteps to ensure valid targets
+        self.indices = np.where(year_mask)[0][:-self.time_offset]
 
         # Initialize data cache
         self._cache = {}
@@ -232,10 +239,13 @@ class ZarrWeatherDataset(Dataset):
 
     def _load_chunk(self, t):
         """Load a chunk of data into cache."""
+        # Load current timestep (t) and target timestep (t + time_offset)
+        time_indices = [t, t + self.time_offset]
+        
         # Surface variables: (time, lon, lat)
-        surface_data = self.ds[self.surface_vars].isel(time=slice(t, t + 2)).to_array().values
+        surface_data = self.ds[self.surface_vars].isel(time=time_indices).to_array().values
         surface = surface_data[:, 0, ...]  # Current timestep (var, lat, lon)
-        surface_target = surface_data[:, 1, ...]  # Next timestep (var, lat, lon)
+        surface_target = surface_data[:, 1, ...]  # Target timestep (var, lat, lon)
         
         # Initialize lists to store upper air variables for each pressure level
         upper_air_vars = []
@@ -247,9 +257,9 @@ class ZarrWeatherDataset(Dataset):
             var_target_data = []
             for pl in self.plevels:
                 # Select data for current variable and pressure level
-                level_data = self.ds[var].sel(level=pl).isel(time=slice(t, t + 2)).values
+                level_data = self.ds[var].sel(level=pl).isel(time=time_indices).values
                 var_data.append(level_data[0])  # Current timestep
-                var_target_data.append(level_data[1])  # Next timestep
+                var_target_data.append(level_data[1])  # Target timestep
             upper_air_vars.append(np.stack(var_data))  # (level, lat, lon)
             upper_air_target_vars.append(np.stack(var_target_data))  # (level, lat, lon)
         

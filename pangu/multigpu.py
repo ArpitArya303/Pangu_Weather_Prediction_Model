@@ -16,7 +16,6 @@ from Pangu.Pangu_Weather_Prediction_Model.pangu.data_utils import (
     upper_air_transform, 
 )
 
-
 def train_step(model, dataloader, surface_criterion, upper_air_criterion, optimizer, accelerator, 
                train_dataset, accumulation_steps):
     """Run one epoch of training and collect per-parameter gradient statistics.
@@ -253,6 +252,7 @@ if __name__ == "__main__":
     parser.add_argument("--num_workers", type=int, default=6, help="Number of data loading workers per GPU")
     parser.add_argument("--patience", type=int, default=10, help="Early stopping patience")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
+    parser.add_argument("--lead_time_hours", type=int, default=6, choices=[6, 12, 24], help="Forecast lead time in hours")
     opt = parser.parse_args()
 
     os.makedirs(opt.log_dir, exist_ok=True)
@@ -264,6 +264,9 @@ if __name__ == "__main__":
         log_with="tensorboard",
         project_dir=opt.log_dir
     )
+
+    # Initialize trackers without hyperparameters (track losses only)
+    accelerator.init_trackers("Pangu_Weather_Prediction")
 
     # Set seed for reproducibility
     set_seed(opt.seed)
@@ -293,7 +296,8 @@ if __name__ == "__main__":
         year_range=(1979, 2018),
         surface_transform=surface_normalizer,  
         upper_air_transform=upper_air_normalizer,
-        chunk_size=chunk_size
+        chunk_size=chunk_size,
+        lead_time_hours=opt.lead_time_hours
     )
 
     val_dataset = ZarrWeatherDataset(
@@ -305,7 +309,8 @@ if __name__ == "__main__":
         year_range=(2019,2020),
         surface_transform=surface_normalizer,
         upper_air_transform=upper_air_normalizer,
-        chunk_size=chunk_size
+        chunk_size=chunk_size,
+        lead_time_hours=opt.lead_time_hours
     )
 
     # Create optimized dataloaders
@@ -383,4 +388,6 @@ if __name__ == "__main__":
         }
         torch.save(model_state, os.path.join(opt.log_dir, 'final_model.pth'))
         print("Final model saved.")
+    
+    accelerator.end_training()
 

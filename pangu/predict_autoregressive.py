@@ -11,22 +11,22 @@ import numpy as np
 import os
 from torch.utils.data import DataLoader
 
-from Pangu.Pangu_Weather_Prediction_Model.pangu.pangu_model import Pangu_lite
+from Pangu.Pangu_Weather_Prediction_Model.pangu.pangu_model import Pangu_mid as Pangu 
 from Pangu.Pangu_Weather_Prediction_Model.pangu.data_utils import (
     ZarrWeatherDataset, surface_transform, upper_air_transform,
     surface_inv_transform, upper_air_inv_transform
 )
 
 def load_model(model_path, device):
-    pangu_lite = Pangu_lite()
-    pangu_lite.eval()
+    Pangu_model = Pangu()
+    Pangu_model.eval()
     if device.type == "cuda":
-        pangu_lite.cuda()
+        Pangu_model.cuda()
         checkpoint = torch.load(model_path)
     else:
         checkpoint = torch.load(model_path, map_location=lambda storage, loc: storage)
-    pangu_lite.load_state_dict(checkpoint['model_state_dict'] if 'model_state_dict' in checkpoint else checkpoint)
-    return pangu_lite
+    Pangu_model.load_state_dict(checkpoint['model_state_dict'] if 'model_state_dict' in checkpoint else checkpoint)
+    return Pangu_model
 
 def predict_autoregressive(model, dataloader, device, surface_mask, surface_invTrans, upper_air_invTrans,
                            pLevels, num_samples, max_lead_time_hours):
